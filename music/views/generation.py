@@ -3,8 +3,12 @@ import re
 from django.http import StreamingHttpResponse, Http404
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 
 from ..models import MusicAudioBlob
+from ..models import GenerationJob
+from ..serializers.generation import GenerationJobSerializer
 
 _RANGE_RE = re.compile(r'bytes=(\d*)-(\d*)')
 
@@ -46,3 +50,29 @@ class MusicAudioStreamView(APIView):
         resp['Content-Length'] = str(total)
         resp['Accept-Ranges'] = 'bytes'
         return resp
+
+
+class ActiveGenerationView(APIView):
+    """현재 로그인 유저의 활성 생성 job 1개(또는 null)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        job = (GenerationJob.objects
+               .filter(user=request.user, phase__in=GenerationJob.ACTIVE_PHASES)
+               .order_by('-created_at')
+               .first())
+        if not job:
+            return Response(None)
+        return Response(GenerationJobSerializer(job).data)
+
+
+class GenerationJobDetailView(APIView):
+    """폴링용 job 상세. 소유자만 조회 가능(아니면 404)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, job_id):
+        try:
+            job = GenerationJob.objects.get(pk=job_id, user=request.user)
+        except GenerationJob.DoesNotExist:
+            raise Http404('job not found')
+        return Response(GenerationJobSerializer(job).data)

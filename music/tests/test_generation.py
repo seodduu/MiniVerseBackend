@@ -158,3 +158,37 @@ class TaskPhaseTransitionTest(TestCase):
         self.job.refresh_from_db()
         self.assertEqual(self.job.phase, GenerationJob.PHASE_PREPARING)
         self.assertEqual(self.job.music_id, music.music_id)
+
+
+class GenerationQueryTest(TestCase):
+    def setUp(self):
+        self.user = make_authed_user('q@example.com')
+        self.other = make_authed_user('other@example.com')
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_active_returns_null_when_none(self):
+        res = self.client.get('/api/v1/music/generation/active/')
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.data)
+
+    def test_active_returns_current_user_job(self):
+        job = GenerationJob.objects.create(user=self.user, original_prompt='p',
+                                           phase=GenerationJob.PHASE_GENERATING)
+        # 다른 유저의 활성 job은 섞이면 안 됨
+        GenerationJob.objects.create(user=self.other, original_prompt='x',
+                                     phase=GenerationJob.PHASE_GENERATING)
+        res = self.client.get('/api/v1/music/generation/active/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['job_id'], job.job_id)
+
+    def test_detail_forbids_other_users_job(self):
+        others = GenerationJob.objects.create(user=self.other, original_prompt='x',
+                                              phase=GenerationJob.PHASE_GENERATING)
+        res = self.client.get(f'/api/v1/music/generation/{others.job_id}/')
+        self.assertEqual(res.status_code, 404)
+
+    def test_active_requires_auth(self):
+        anon = APIClient()
+        res = anon.get('/api/v1/music/generation/active/')
+        self.assertIn(res.status_code, (401, 403))

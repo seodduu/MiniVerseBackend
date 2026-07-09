@@ -74,6 +74,8 @@ from .views.ai_music import (
 # 오디오 스트리밍 (Postgres 블롭)
 from .views.generation import (
     MusicAudioStreamView,
+    ActiveGenerationView,
+    GenerationJobDetailView,
 )
 
 app_name = 'music'
@@ -248,10 +250,18 @@ urlpatterns = [
     # POST /api/v1/music/webhook/suno/
     path('webhook/suno/', SunoWebhookView.as_view(), name='suno_webhook'),
     
+    # 현재 유저의 활성 생성 작업
+    # GET /api/v1/music/generation/active/
+    path('generation/active/', ActiveGenerationView.as_view(), name='generation_active'),
+
+    # 생성 작업 상세 (폴링)
+    # GET /api/v1/music/generation/{job_id}/
+    path('generation/<int:job_id>/', GenerationJobDetailView.as_view(), name='generation_detail'),
+
     # AI 음악 목록 조회 (is_ai, user_id 필터링 지원)
     # GET /api/v1/music/?is_ai=true&user_id=1
     path('', AiMusicListView.as_view(), name='ai_music_list'),
-    
+
     # 오디오 스트리밍 (Range 지원)
     # GET /api/v1/music/{music_id}/audio/
     path('<int:music_id>/audio/', MusicAudioStreamView.as_view(), name='music_audio_stream'),
