@@ -3,7 +3,7 @@
 #   * Rearrange models' order
 #   * Make sure each model has one field with primary_key=True
 #   * Make sure each ForeignKey and OneToOneField has `on_delete` set to the desired behavior
-#   * Remove `managed = False` lines if you wish to allow Django to create, modify, and delete the table
+#   * Remove `managed = True` lines if you wish to allow Django to create, modify, and delete the table
 # Feel free to rename the models, but don't rename db_table values or field names.
 from django.db import models
 from .mixins import TrackableMixin
@@ -21,7 +21,7 @@ class AiInfo(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'ai_info'
         verbose_name = 'AI 정보'
         verbose_name_plural = '5️⃣ 🤖 AI - AI 정보'
@@ -40,7 +40,7 @@ class Albums(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'albums'
         verbose_name = '앨범'
         verbose_name_plural = '2️⃣ 🎵 MUSIC - 앨범'
@@ -56,7 +56,7 @@ class AlbumLikes(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'album_likes'
         verbose_name = '앨범 좋아요'
         verbose_name_plural = '4️⃣ 📊 ANALYTICS - 앨범 좋아요'
@@ -75,7 +75,7 @@ class Artists(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'artists'
         verbose_name = '아티스트'
         verbose_name_plural = '2️⃣ 🎵 MUSIC - 아티스트'
@@ -175,7 +175,7 @@ class Charts(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'charts'
         verbose_name = '차트'
         verbose_name_plural = '4️⃣ 📊 ANALYTICS - 차트'
@@ -280,7 +280,7 @@ class Genres(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'genres'
         verbose_name = '장르'
         verbose_name_plural = '2️⃣ 🎵 MUSIC - 장르'
@@ -306,7 +306,7 @@ class Music(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'music'
         verbose_name = '음악'
         verbose_name_plural = '2️⃣ 🎵 MUSIC - 음악'
@@ -322,7 +322,7 @@ class MusicLikes(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'music_likes'
         verbose_name = '음악 좋아요'
         verbose_name_plural = '4️⃣ 📊 ANALYTICS - 음악 좋아요'
@@ -338,7 +338,7 @@ class MusicTags(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'music_tags'
         unique_together = (('music', 'tag'),)
         verbose_name = '음악 태그'
@@ -362,7 +362,7 @@ class PlayLogs(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'play_logs'
         verbose_name = '재생 기록'
         verbose_name_plural = '4️⃣ 📊 ANALYTICS - 재생 기록'
@@ -379,7 +379,7 @@ class PlaylistItems(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'playlist_items'
         verbose_name = '플레이리스트 항목'
         verbose_name_plural = '3️⃣ 📝 PLAYLIST - 플레이리스트 항목'
@@ -395,7 +395,7 @@ class PlaylistLikes(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'playlist_likes'
         verbose_name = '플레이리스트 좋아요'
         verbose_name_plural = '3️⃣ 📝 PLAYLIST - 플레이리스트 좋아요'
@@ -412,7 +412,7 @@ class Playlists(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'playlists'
         verbose_name = '플레이리스트'
         verbose_name_plural = '3️⃣ 📝 PLAYLIST - 플레이리스트'
@@ -427,7 +427,7 @@ class Tags(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'tags'
         verbose_name = '태그'
         verbose_name_plural = '2️⃣ 🎵 MUSIC - 태그'
@@ -444,7 +444,7 @@ class Users(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'users'
         verbose_name = '사용자'
         verbose_name_plural = '1️⃣ 👤 USER - 사용자'
@@ -459,8 +459,11 @@ class UsersGenre(TrackableMixin, models.Model):
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'users_genre'
         unique_together = (('user', 'genre'),)
         verbose_name = '사용자 선호 장르'
         verbose_name_plural = '1️⃣ 👤 USER - 사용자 선호 장르'
+
+# AI 생성 작업 / 오디오 블롭 모델 (분리된 파일에서 재노출)
+from .models_generation import GenerationJob, MusicAudioBlob  # noqa: E402,F401
