@@ -18,6 +18,7 @@ from .metadata import (
 from .ai_music import (
     generate_music_task,
     upload_suno_audio_to_s3_task,
+    store_audio_to_db_task,
     fetch_timestamped_lyrics_task,
     process_suno_webhook_task,
 )
@@ -54,6 +55,7 @@ __all__ = [
     'fetch_lyrics_task',
     # AI 음악
     'generate_music_task',
+    'store_audio_to_db_task',
     'upload_suno_audio_to_s3_task',
     'fetch_timestamped_lyrics_task',
     'process_suno_webhook_task',

@@ -71,6 +71,11 @@ from .views.ai_music import (
     ConvertPromptView,
 )
 
+# 오디오 스트리밍 (Postgres 블롭)
+from .views.generation import (
+    MusicAudioStreamView,
+)
+
 app_name = 'music'
 
 urlpatterns = [
@@ -247,6 +252,10 @@ urlpatterns = [
     # GET /api/v1/music/?is_ai=true&user_id=1
     path('', AiMusicListView.as_view(), name='ai_music_list'),
     
+    # 오디오 스트리밍 (Range 지원)
+    # GET /api/v1/music/{music_id}/audio/
+    path('<int:music_id>/audio/', MusicAudioStreamView.as_view(), name='music_audio_stream'),
+
     # AI 음악 상세 조회 (music_id 기반)
     # GET /api/v1/music/{music_id}/
     path('<int:music_id>/', AiMusicDetailView.as_view(), name='ai_music_detail'),

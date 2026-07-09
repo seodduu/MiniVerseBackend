@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from music.models import GenerationJob, Users
+from music.models import Music, MusicAudioBlob
 from music.serializers.generation import GenerationJobSerializer
 
 
@@ -95,3 +96,38 @@ class GenerateAsyncJobTest(TestCase):
         res = anon.post('/api/v1/music/generate-async/',
                         {'prompt': 'x', 'make_instrumental': False}, format='json')
         self.assertIn(res.status_code, (401, 403))
+
+
+class AudioStreamTest(TestCase):
+    def setUp(self):
+        self.user = make_authed_user('audio@example.com')
+        self.music = Music.objects.create(
+            user=self.user, music_name='곡', is_ai=True,
+            created_at=timezone.now(), updated_at=timezone.now(), is_deleted=False,
+        )
+        MusicAudioBlob.objects.create(
+            music=self.music, content_type='audio/mpeg',
+            data=b'0123456789', size=10,
+        )
+        self.client = APIClient()
+
+    def test_full_get_returns_200_and_bytes(self):
+        res = self.client.get(f'/api/v1/music/{self.music.music_id}/audio/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(b''.join(res.streaming_content), b'0123456789')
+        self.assertEqual(res['Content-Type'], 'audio/mpeg')
+
+    def test_range_get_returns_206_partial(self):
+        res = self.client.get(f'/api/v1/music/{self.music.music_id}/audio/',
+                              HTTP_RANGE='bytes=2-5')
+        self.assertEqual(res.status_code, 206)
+        self.assertEqual(b''.join(res.streaming_content), b'2345')
+        self.assertEqual(res['Content-Range'], 'bytes 2-5/10')
+
+    def test_missing_blob_returns_404(self):
+        m2 = Music.objects.create(
+            user=self.user, music_name='없음', is_ai=True,
+            created_at=timezone.now(), updated_at=timezone.now(), is_deleted=False,
+        )
+        res = self.client.get(f'/api/v1/music/{m2.music_id}/audio/')
+        self.assertEqual(res.status_code, 404)

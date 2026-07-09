@@ -583,3 +583,39 @@ def process_suno_webhook_task(self, webhook_data: dict):
         
         logger.error(f"[Webhook 태스크] 최대 재시도 횟수 초과")
         return {"status": "error", "message": str(e)}
+
+
+@shared_task(bind=True, max_retries=3)
+def store_audio_to_db_task(self, music_id: int, source_url: str, job_id: int = None):
+    """Suno CDN 오디오를 받아 MusicAudioBlob(Postgres)에 저장하고 job을 완료 처리."""
+    import requests
+    from ..models import Music, MusicAudioBlob, GenerationJob
+
+    try:
+        music = Music.objects.get(music_id=music_id)
+        resp = requests.get(source_url, timeout=60)
+        resp.raise_for_status()
+        content = resp.content
+        content_type = resp.headers.get('Content-Type', 'audio/mpeg')
+
+        MusicAudioBlob.objects.update_or_create(
+            music=music,
+            defaults={'content_type': content_type, 'data': content, 'size': len(content)},
+        )
+        music.audio_url = f"/api/v1/music/{music.music_id}/audio/"
+        music.save(update_fields=['audio_url', 'updated_at'])
+
+        if job_id:
+            GenerationJob.objects.filter(pk=job_id).update(
+                phase=GenerationJob.PHASE_COMPLETED,
+            )
+        return {'success': True, 'music_id': music_id, 'size': len(content)}
+    except Exception as e:
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=5)
+        if job_id:
+            from ..models import GenerationJob as GJ
+            GJ.objects.filter(pk=job_id).update(
+                phase=GJ.PHASE_FAILED, error=f'오디오 저장 실패: {e}',
+            )
+        return {'success': False, 'error': str(e)}
