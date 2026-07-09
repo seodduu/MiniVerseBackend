@@ -35,6 +35,8 @@ class Albums(TrackableMixin, models.Model):
     image_square = models.TextField(blank=True, null=True)  # 220x220 사각형 이미지
     image_large_square = models.TextField(blank=True, null=True)  # 360x360 사각형 이미지
     # created_at, updated_at, is_deleted는 TrackableMixin에서 제공
+    spotify_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
+    release_date = models.DateField(blank=True, null=True)
 
     objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
@@ -70,6 +72,7 @@ class Artists(TrackableMixin, models.Model):
     image_large_circle = models.TextField(blank=True, null=True)  # 228x228 원형 이미지
     image_small_circle = models.TextField(blank=True, null=True)  # 208x208 원형 이미지
     image_square = models.TextField(blank=True, null=True)  # 220x220 사각형 이미지
+    spotify_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
 
     objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
@@ -296,11 +299,12 @@ class Music(TrackableMixin, models.Model):
     audio_url = models.CharField(max_length=200, blank=True, null=True)
     genre = models.CharField(max_length=50, blank=True, null=True)
     duration = models.IntegerField(blank=True, null=True)
-    lyrics = models.TextField(blank=True, null=True)
     # created_at, updated_at, is_deleted는 TrackableMixin에서 제공
     valence = models.DecimalField(max_digits=10, decimal_places=6, blank=True, null=True)
     arousal = models.DecimalField(max_digits=10, decimal_places=6, blank=True, null=True)
     itunes_id = models.BigIntegerField(blank=True, null=True)
+    spotify_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
+    isrc = models.CharField(max_length=32, blank=True, null=True)
 
     objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
@@ -329,13 +333,13 @@ class MusicLikes(TrackableMixin, models.Model):
 
 
 class MusicTags(TrackableMixin, models.Model):
+    music_tag_id = models.BigAutoField(primary_key=True)
     tag = models.ForeignKey('Tags', models.DO_NOTHING)
-    music = models.ForeignKey(Music, models.DO_NOTHING, primary_key=True) # 다시 music을 primary_key로 설정 (DB 컬럼명 music_id)
-    score = models.FloatField(default=0.0, blank=True, null=True) # 태그 밀접도 점수 추가
-    # created_at, updated_at, is_deleted는 TrackableMixin에서 제공
+    music = models.ForeignKey(Music, models.DO_NOTHING)
+    score = models.FloatField(default=0.0, blank=True, null=True)
 
-    objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
-    all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
+    objects = SoftDeleteManager()
+    all_objects = models.Manager()
 
     class Meta:
         managed = True
@@ -421,6 +425,7 @@ class Playlists(TrackableMixin, models.Model):
 class Tags(TrackableMixin, models.Model):
     tag_id = models.BigAutoField(primary_key=True)
     tag_key = models.TextField(unique=True)
+    tag_type = models.CharField(max_length=16, default='mood')
     # created_at, updated_at, is_deleted는 TrackableMixin에서 제공
 
     objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
@@ -464,3 +469,36 @@ class UsersGenre(TrackableMixin, models.Model):
         unique_together = (('user', 'genre'),)
         verbose_name = '사용자 선호 장르'
         verbose_name_plural = '1️⃣ 👤 USER - 사용자 선호 장르'
+
+
+class MusicSimilar(TrackableMixin, models.Model):
+    music_similar_id = models.BigAutoField(primary_key=True)
+    music = models.ForeignKey(Music, models.DO_NOTHING, related_name='similar_from')
+    similar_music = models.ForeignKey(Music, models.DO_NOTHING, related_name='similar_to')
+    match = models.FloatField(default=0.0)
+
+    objects = SoftDeleteManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        managed = True
+        db_table = 'music_similar'
+        unique_together = (('music', 'similar_music'),)
+        verbose_name = '유사 곡'
+        verbose_name_plural = '2️⃣ 🎵 MUSIC - 유사 곡'
+
+
+class ArtistGenres(TrackableMixin, models.Model):
+    artist_genre_id = models.BigAutoField(primary_key=True)
+    artist = models.ForeignKey(Artists, models.DO_NOTHING)
+    genre = models.ForeignKey(Genres, models.DO_NOTHING)
+
+    objects = SoftDeleteManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        managed = True
+        db_table = 'artist_genres'
+        unique_together = (('artist', 'genre'),)
+        verbose_name = '아티스트 장르'
+        verbose_name_plural = '2️⃣ 🎵 MUSIC - 아티스트 장르'
