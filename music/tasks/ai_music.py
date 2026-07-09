@@ -220,6 +220,8 @@ def generate_music_task(self, user_prompt: str, user_id: int = None,
             except Exception as e:
                 logger.warning(f"[오디오 저장] 태스크 호출 실패: {e}")
                 _mark_job_failed(job_id, f'오디오 저장 태스크 호출 실패: {e}')
+        else:
+            _mark_job_failed(job_id, "생성된 오디오 URL을 찾을 수 없습니다.")
 
         # 9. 결과 반환
         return {

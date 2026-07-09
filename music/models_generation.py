@@ -30,7 +30,14 @@ class GenerationJob(models.Model):
     class Meta:
         managed = True
         db_table = 'ai_generation_job'
-        indexes = [models.Index(fields=['user', 'phase'])]
+        indexes = [models.Index(fields=['user', 'phase'], name='ai_gen_job_user_phase_idx')]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=models.Q(phase__in=['generating', 'preparing_audio']),
+                name='uniq_active_generation_per_user',
+            ),
+        ]
         verbose_name = 'AI 생성 작업'
         verbose_name_plural = '5️⃣ 🤖 AI - 생성 작업'
 

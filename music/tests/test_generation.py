@@ -50,6 +50,32 @@ class GenerationJobSerializerTest(TestCase):
         self.assertIsNone(data['audio_url'])
         self.assertEqual(data['phase'], 'generating')
 
+    def test_audio_url_none_while_preparing_audio(self):
+        music = Music.objects.create(
+            user=self.user, music_name='곡', is_ai=True,
+            created_at=timezone.now(), updated_at=timezone.now(), is_deleted=False,
+        )
+        job = GenerationJob.objects.create(
+            user=self.user, original_prompt='봄', music=music,
+            phase=GenerationJob.PHASE_PREPARING,
+        )
+        data = GenerationJobSerializer(job).data
+        # 오디오 blob이 아직 저장되지 않았을 수 있는 preparing_audio 단계에서는
+        # audio_url을 노출하지 않아 조기 404를 방지한다.
+        self.assertIsNone(data['audio_url'])
+
+    def test_audio_url_present_once_completed(self):
+        music = Music.objects.create(
+            user=self.user, music_name='곡', is_ai=True,
+            created_at=timezone.now(), updated_at=timezone.now(), is_deleted=False,
+        )
+        job = GenerationJob.objects.create(
+            user=self.user, original_prompt='봄', music=music,
+            phase=GenerationJob.PHASE_COMPLETED,
+        )
+        data = GenerationJobSerializer(job).data
+        self.assertEqual(data['audio_url'], f"/api/v1/music/{music.music_id}/audio/")
+
 
 def make_authed_user(email):
     u = Users.objects.create(

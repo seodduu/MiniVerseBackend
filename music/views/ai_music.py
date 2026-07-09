@@ -5,6 +5,7 @@ AI 음악 생성 API Views
 기존 legacy.py의 FBV를 CBV로 전환하고 Service Layer를 활용합니다.
 """
 import traceback
+from django.db import transaction, IntegrityError
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -210,7 +211,7 @@ class AiMusicGenerateAsyncView(APIView):
         validated_data = serializer.validated_data
         user = request.user  # CustomJWTAuthentication이 채운 Users 인스턴스
 
-        # 단일 작업 가드: 활성 job이 있으면 409
+        # 단일 작업 가드: 활성 job이 있으면 409 (빠른 경로)
         if GenerationJob.objects.filter(
             user=user, phase__in=GenerationJob.ACTIVE_PHASES
         ).exists():
@@ -219,13 +220,26 @@ class AiMusicGenerateAsyncView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        # converted_prompt는 외부 입력이므로 DB 컬럼 길이/타입에 맞게 안전하게 변환
+        raw_cp = request.data.get('converted_prompt')
+        converted_prompt = str(raw_cp)[:2000] if raw_cp is not None else None
+
         # GenerationJob 생성 (소스 오브 트루스)
-        job = GenerationJob.objects.create(
-            user=user,
-            original_prompt=validated_data['prompt'][:1500],
-            converted_prompt=request.data.get('converted_prompt'),
-            phase=GenerationJob.PHASE_GENERATING,
-        )
+        # exists() 체크와 create() 사이의 TOCTOU 경쟁을 DB의 partial unique
+        # constraint(uniq_active_generation_per_user)로 백업 처리한다.
+        try:
+            with transaction.atomic():
+                job = GenerationJob.objects.create(
+                    user=user,
+                    original_prompt=validated_data['prompt'][:1500],
+                    converted_prompt=converted_prompt,
+                    phase=GenerationJob.PHASE_GENERATING,
+                )
+        except IntegrityError:
+            return Response(
+                {"error": "이미 진행 중인 생성 작업이 있습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # Celery 작업 시작 (job_id 전달)
         task = generate_music_task.delay(
