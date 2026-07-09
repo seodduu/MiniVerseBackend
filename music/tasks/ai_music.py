@@ -13,6 +13,24 @@ from ..utils.s3_upload import download_and_upload_to_s3, is_suno_url, is_s3_url,
 logger = logging.getLogger(__name__)
 
 
+def _mark_job_preparing(job_id, music_id):
+    if not job_id:
+        return
+    from ..models import GenerationJob
+    GenerationJob.objects.filter(pk=job_id).update(
+        phase=GenerationJob.PHASE_PREPARING, music_id=music_id,
+    )
+
+
+def _mark_job_failed(job_id, message):
+    if not job_id:
+        return
+    from ..models import GenerationJob
+    GenerationJob.objects.filter(pk=job_id).update(
+        phase=GenerationJob.PHASE_FAILED, error=str(message)[:2000],
+    )
+
+
 @shared_task(bind=True, max_retries=3)
 def generate_music_task(self, user_prompt: str, user_id: int = None,
                         make_instrumental: bool = False, job_id: int = None):
@@ -180,7 +198,10 @@ def generate_music_task(self, user_prompt: str, user_id: int = None,
             updated_at=now,
             is_deleted=False
         )
-        
+
+        # GenerationJob → preparing_audio 전이
+        _mark_job_preparing(job_id, music.music_id)
+
         # 7. AiInfo 모델에 프롬프트 정보 저장
         # task_id 필드를 직접 설정해야 webhook 태스크에서 찾을 수 있음
         ai_info = AiInfo.objects.create(
@@ -192,13 +213,13 @@ def generate_music_task(self, user_prompt: str, user_id: int = None,
             is_deleted=False
         )
 
-        # 8. S3 업로드 태스크 호출 (비동기)
-        if audio_url and is_suno_url(audio_url):
+        # 8. 오디오를 Postgres에 저장 (S3 대체). 완료 시 job.phase=completed.
+        if audio_url:
             try:
-                logger.info(f"[S3 업로드] S3 오디오 업로드 태스크 호출: music_id={music.music_id}")
-                upload_suno_audio_to_s3_task.delay(music.music_id, audio_url)
+                store_audio_to_db_task.delay(music.music_id, audio_url, job_id=job_id)
             except Exception as e:
-                logger.warning(f"[S3 업로드] S3 업로드 태스크 호출 실패 (계속 진행): {e}")
+                logger.warning(f"[오디오 저장] 태스크 호출 실패: {e}")
+                _mark_job_failed(job_id, f'오디오 저장 태스크 호출 실패: {e}')
 
         # 9. 결과 반환
         return {
@@ -229,6 +250,7 @@ def generate_music_task(self, user_prompt: str, user_id: int = None,
         if self.request.retries < self.max_retries:
             raise self.retry(exc=e, countdown=5)
         else:
+            _mark_job_failed(job_id, str(e))
             return {
                 'success': False,
                 'error': str(e)

@@ -131,3 +131,30 @@ class AudioStreamTest(TestCase):
         )
         res = self.client.get(f'/api/v1/music/{m2.music_id}/audio/')
         self.assertEqual(res.status_code, 404)
+
+
+class TaskPhaseTransitionTest(TestCase):
+    def setUp(self):
+        self.user = make_authed_user('phase@example.com')
+        self.job = GenerationJob.objects.create(
+            user=self.user, original_prompt='p', phase=GenerationJob.PHASE_GENERATING,
+        )
+
+    def test_failed_phase_set_on_music_creation_error(self):
+        # user_id 없는(=None) 상태로 강제 실패 유도 대신, 존재하지 않는 흐름을 직접 검증
+        from music.tasks.ai_music import _mark_job_failed
+        _mark_job_failed(self.job.job_id, '테스트 실패')
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.phase, GenerationJob.PHASE_FAILED)
+        self.assertEqual(self.job.error, '테스트 실패')
+
+    def test_preparing_helper_sets_music_and_phase(self):
+        from music.tasks.ai_music import _mark_job_preparing
+        music = Music.objects.create(
+            user=self.user, music_name='곡', is_ai=True,
+            created_at=timezone.now(), updated_at=timezone.now(), is_deleted=False,
+        )
+        _mark_job_preparing(self.job.job_id, music.music_id)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.phase, GenerationJob.PHASE_PREPARING)
+        self.assertEqual(self.job.music_id, music.music_id)
