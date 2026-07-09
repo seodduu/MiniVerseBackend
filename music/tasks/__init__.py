@@ -10,8 +10,6 @@ from .common import (
 # 메타데이터 수집 작업
 from .metadata import (
     fetch_artist_image_task,
-    fetch_album_image_task,
-    fetch_lyrics_task,
 )
 
 # AI 음악 생성 작업
@@ -56,8 +54,6 @@ __all__ = [
     'test_task',
     # 메타데이터
     'fetch_artist_image_task',
-    'fetch_album_image_task',
-    'fetch_lyrics_task',
     # AI 음악
     'generate_music_task',
     'upload_suno_audio_to_s3_task',
