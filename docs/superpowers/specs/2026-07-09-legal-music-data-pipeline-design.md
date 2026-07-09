@@ -102,10 +102,25 @@
 
 ## 6. 스키마 · 신규 코드
 
-### 스키마 변경 (`managed=False` → raw SQL 마이그레이션 스크립트)
+### 스키마 변경 (도메인 테이블은 `managed=True` → 일반 Django 마이그레이션)
+- `music`, `artists`, `albums`, `genres`는 `managed=True`이므로 `makemigrations`로 처리
+  (auth/django 시스템 테이블만 `managed=False`, 이번 변경과 무관).
 - `music`: `spotify_id`(unique), `isrc` 컬럼 추가; `lyrics`, `valence`, `arousal` 컬럼 drop
-- `artists`: `spotify_id` 컬럼 추가
-- `albums`: `spotify_id` 컬럼 추가
+- `artists`: `spotify_id`(unique) 컬럼 추가
+- `albums`: `spotify_id`(unique) 컬럼 추가
+
+### 스키마 안전 매핑 원칙 (API 응답 → 기존 테이블)
+- **저장 패턴 유지**: 기존 `save_itunes_track_to_db_task`처럼 `transaction.atomic()` 안에서
+  **Artist → Album → Music 순서**로 `get_or_create`. FK 순서·부분 실패 방지 그대로 계승.
+- **중복 판정 키 교체**: 현행 Artist 중복 판정은 `artist_name`(동명이인 충돌 위험) →
+  **`spotify_id` 기준**으로 교체. Album·Music도 `spotify_id` 기준. 데이터 무결성 개선.
+- **NOT NULL 준수**: `music_name`, `artist_name`은 Spotify가 항상 제공 → 안전.
+  `album_name`은 nullable(싱글 등 허용). `created_at/updated_at/is_deleted`는
+  TrackableMixin이 자동(`auto_now_add`/`auto_now`/`default=False`) → 직접 세팅 금지.
+- **URL 길이**: `audio_url` varchar(200), `album_image` varchar(255)에 Spotify 커버(~64자)·
+  iTunes preview(~110자) 모두 수용. (신규 태그/이미지 URL도 길이 초과 없음 확인)
+- **부분 데이터 허용**: iTunes 미매칭(미리듣기 없음)·Last.fm 태그 없음·아티스트 이미지 미확보는
+  모두 정상 케이스로 취급(빈 값 저장). 저장 자체를 실패시키지 않음.
 
 ### 무드 태그 테이블 (신규, 가중치 있는 M:N)
 - `tags`: `tag_id`(PK), `tag_name`(unique), `tag_type`(초기값 `'mood'`; 향후 `'genre'` 확장 여지)
