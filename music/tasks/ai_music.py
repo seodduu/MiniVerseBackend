@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3)
-def generate_music_task(self, user_prompt: str, user_id: int = None, make_instrumental: bool = False):
+def generate_music_task(self, user_prompt: str, user_id: int = None,
+                        make_instrumental: bool = False, job_id: int = None):
     """
     비동기로 음악을 생성하는 Celery 작업
     

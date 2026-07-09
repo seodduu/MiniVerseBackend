@@ -8,13 +8,13 @@ import traceback
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from celery.result import AsyncResult
 
-from ..models import Music
+from ..models import Music, GenerationJob
 from ..serializers.ai_music import (
     MusicGenerateRequestSerializer,
     MusicGenerateResponseSerializer,
@@ -175,7 +175,7 @@ class AiMusicGenerateAsyncView(APIView):
     
     Celery를 사용하여 비동기로 음악을 생성하고 task_id를 반환합니다.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     parser_classes = [FlexibleJSONParser]
     
     @extend_schema(
@@ -208,21 +208,43 @@ class AiMusicGenerateAsyncView(APIView):
             )
         
         validated_data = serializer.validated_data
-        
-        # 2. Celery 작업 시작
+        user = request.user  # CustomJWTAuthentication이 채운 Users 인스턴스
+
+        # 단일 작업 가드: 활성 job이 있으면 409
+        if GenerationJob.objects.filter(
+            user=user, phase__in=GenerationJob.ACTIVE_PHASES
+        ).exists():
+            return Response(
+                {"error": "이미 진행 중인 생성 작업이 있습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # GenerationJob 생성 (소스 오브 트루스)
+        job = GenerationJob.objects.create(
+            user=user,
+            original_prompt=validated_data['prompt'][:1500],
+            converted_prompt=request.data.get('converted_prompt'),
+            phase=GenerationJob.PHASE_GENERATING,
+        )
+
+        # Celery 작업 시작 (job_id 전달)
         task = generate_music_task.delay(
             user_prompt=validated_data['prompt'],
-            user_id=validated_data.get('user_id'),
-            make_instrumental=validated_data.get('make_instrumental', False)
+            user_id=user.user_id,
+            make_instrumental=validated_data.get('make_instrumental', False),
+            job_id=job.job_id,
         )
-        
+        job.celery_task_id = task.id
+        job.save(update_fields=['celery_task_id', 'updated_at'])
+
         return Response(
             {
                 "task_id": task.id,
+                "job_id": job.job_id,
                 "status": "pending",
-                "message": "음악 생성이 시작되었습니다. task_id로 상태를 확인하세요."
+                "message": "음악 생성이 시작되었습니다.",
             },
-            status=status.HTTP_202_ACCEPTED
+            status=status.HTTP_202_ACCEPTED,
         )
 
 
