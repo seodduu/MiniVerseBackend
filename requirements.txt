@@ -64,3 +64,7 @@ drf-spectacular>=0.27.0,<0.28.0     # Swagger/OpenAPI 문서 자동 생성
 # 검색 엔진
 # ==============================================
 opensearch-py                       # AWS OpenSearch 클라이언트
+
+pytest                              # 테스트 러너
+pytest-django                       # Django 통합 (DB 픽스처, settings)
+responses                           # requests HTTP 목킹
