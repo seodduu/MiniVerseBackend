@@ -818,60 +818,75 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ## Phase 2 — 저장 파이프라인 & 태스크
 
-### Task 6: iTunes ISRC 미리듣기 조회 헬퍼
+### Task 6: iTunes 검색 기반 미리듣기 조회 헬퍼
+
+> **설계 변경 근거(실호출 검증):** iTunes Lookup API는 `isrc` 파라미터를 지원하지 않는다(실제 ISRC로 조회 시 항상 resultCount=0 확인됨). 반면 iTunes **Search**(artist+곡명)는 실제 previewUrl을 반환한다. 프로젝트 원칙(정확도보다 단순·공식·신뢰; CLAUDE.md 참조)에 따라 이름 기반 검색으로 preview를 얻는다. Spotify의 ISRC는 `music.isrc`에 메타데이터로 계속 저장하되 preview 조회에는 사용하지 않는다.
 
 **Files:**
 - Modify: `music/services/external/itunes.py` (메서드 추가)
-- Create: `music/tests/test_itunes_isrc.py`
+- Create: `music/tests/test_itunes_preview.py`
 
 **Interfaces:**
 - Consumes: 기존 `iTunesService`.
-- Produces: `iTunesService.lookup_preview_by_isrc(isrc: str) -> str` — 매칭 곡의 `previewUrl` 또는 `""`.
+- Produces: `iTunesService.search_preview(artist: str, track: str, country='KR') -> str` — iTunes 검색 첫 곡의 `previewUrl` 또는 `""`.
 
 - [ ] **Step 1: 실패 테스트 작성**
 
-`music/tests/test_itunes_isrc.py`:
+`music/tests/test_itunes_preview.py`:
 ```python
 import responses
 from music.services.external.itunes import iTunesService
 
 
 @responses.activate
-def test_lookup_preview_by_isrc_returns_preview():
+def test_search_preview_returns_preview():
     responses.add(
-        responses.GET, "https://itunes.apple.com/lookup",
+        responses.GET, "https://itunes.apple.com/search",
         json={"resultCount": 1, "results": [
             {"wrapperType": "track", "kind": "song",
+             "trackName": "Super Shy", "artistName": "NewJeans",
              "previewUrl": "https://audio.itunes/preview.m4a"}]},
         status=200,
     )
-    assert iTunesService.lookup_preview_by_isrc("KRA402400123") == "https://audio.itunes/preview.m4a"
+    assert iTunesService.search_preview("NewJeans", "Super Shy") == "https://audio.itunes/preview.m4a"
 
 
 @responses.activate
-def test_lookup_preview_by_isrc_no_match_returns_empty():
-    responses.add(responses.GET, "https://itunes.apple.com/lookup",
+def test_search_preview_no_match_returns_empty():
+    responses.add(responses.GET, "https://itunes.apple.com/search",
                   json={"resultCount": 0, "results": []}, status=200)
-    assert iTunesService.lookup_preview_by_isrc("NOPE") == ""
+    assert iTunesService.search_preview("Nobody", "No Such Song") == ""
+
+
+@responses.activate
+def test_search_preview_missing_url_returns_empty():
+    responses.add(
+        responses.GET, "https://itunes.apple.com/search",
+        json={"resultCount": 1, "results": [
+            {"wrapperType": "track", "kind": "song", "trackName": "X"}]},
+        status=200,
+    )
+    assert iTunesService.search_preview("A", "X") == ""
 ```
 
 - [ ] **Step 2: 실행하여 실패 확인**
 
-Run: `python -m pytest music/tests/test_itunes_isrc.py -v`
-Expected: FAIL — `lookup_preview_by_isrc` 없음.
+Run: `python -m pytest music/tests/test_itunes_preview.py -v`
+Expected: FAIL — `search_preview` 없음.
 
 - [ ] **Step 3: 메서드 추가**
 
 `music/services/external/itunes.py`의 `iTunesService`에 추가:
 ```python
     @classmethod
-    def lookup_preview_by_isrc(cls, isrc: str, country: str = "KR") -> str:
-        """ISRC로 iTunes 곡을 찾아 30초 미리듣기 URL을 반환. 없으면 빈 문자열."""
-        if not isrc:
+    def search_preview(cls, artist: str, track: str, country: str = "KR") -> str:
+        """artist+곡명으로 iTunes를 검색해 첫 곡의 30초 미리듣기 URL을 반환. 없으면 빈 문자열."""
+        term = f"{artist} {track}".strip()
+        if not term:
             return ""
         try:
-            r = requests.get(cls.LOOKUP_ENDPOINT, params={
-                "isrc": isrc, "entity": "song", "country": country,
+            r = requests.get(cls.SEARCH_ENDPOINT, params={
+                "term": term, "entity": "song", "limit": 1, "country": country,
             }, timeout=cls.TIMEOUT)
             r.raise_for_status()
             for result in r.json().get("results", []):
@@ -884,14 +899,14 @@ Expected: FAIL — `lookup_preview_by_isrc` 없음.
 
 - [ ] **Step 4: 실행하여 통과 확인**
 
-Run: `python -m pytest music/tests/test_itunes_isrc.py -v`
-Expected: 2 passed.
+Run: `python -m pytest music/tests/test_itunes_preview.py -v`
+Expected: 3 passed.
 
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add music/services/external/itunes.py music/tests/test_itunes_isrc.py
-git commit -m "feat: iTunes ISRC 미리듣기 조회 (lookup_preview_by_isrc)
+git add music/services/external/itunes.py music/tests/test_itunes_preview.py
+git commit -m "feat: iTunes 검색 기반 미리듣기 조회 (search_preview)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
@@ -906,7 +921,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Create: `music/tests/test_spotify_save_task.py`
 
 **Interfaces:**
-- Consumes: `SpotifyService`(dict 형태 §Task3), `iTunesService.lookup_preview_by_isrc`.
+- Consumes: `SpotifyService`(dict 형태 §Task3), `iTunesService.search_preview`.
 - Produces: `save_spotify_track_to_db_task(track: dict) -> int | None` — `track`은 SpotifyService 검색/조회 dict. 저장 후 `music_id`. 중복(spotify_id 기준) 시 기존 id. 저장 성공 시 아티스트 이미지·무드 태그·유사곡 태스크를 `.delay()`로 트리거.
 
 - [ ] **Step 1: 실패 테스트 작성 (중복 방지 + FK 순서 + 부분데이터)**
@@ -932,7 +947,7 @@ TRACK = {
 @patch("music.tasks.spotify_save.fetch_similar_tracks_task")
 @patch("music.tasks.spotify_save.fetch_mood_tags_task")
 @patch("music.tasks.spotify_save.fetch_artist_image_task")
-@patch("music.tasks.spotify_save.iTunesService.lookup_preview_by_isrc", return_value="https://prev.m4a")
+@patch("music.tasks.spotify_save.iTunesService.search_preview", return_value="https://prev.m4a")
 def test_saves_track_with_fk_chain(mock_prev, mock_img, mock_mood, mock_sim):
     from music.tasks.spotify_save import save_spotify_track_to_db_task
     from music.models import Music, Artists, Albums
@@ -951,7 +966,7 @@ def test_saves_track_with_fk_chain(mock_prev, mock_img, mock_mood, mock_sim):
 @patch("music.tasks.spotify_save.fetch_similar_tracks_task")
 @patch("music.tasks.spotify_save.fetch_mood_tags_task")
 @patch("music.tasks.spotify_save.fetch_artist_image_task")
-@patch("music.tasks.spotify_save.iTunesService.lookup_preview_by_isrc", return_value="")
+@patch("music.tasks.spotify_save.iTunesService.search_preview", return_value="")
 def test_dedup_by_spotify_id(mock_prev, mock_img, mock_mood, mock_sim):
     from music.tasks.spotify_save import save_spotify_track_to_db_task
     from music.models import Music
@@ -1041,7 +1056,7 @@ def save_spotify_track_to_db_task(self, track: dict):
                     },
                 )
 
-            preview = iTunesService.lookup_preview_by_isrc(track.get("isrc", ""))
+            preview = iTunesService.search_preview(track.get("artist_name", ""), track.get("music_name", ""))
 
             music = Music.objects.create(
                 spotify_id=spotify_id,
