@@ -45,6 +45,12 @@ from .image_resize import (
     resize_image_task,
 )
 
+# GraphRAG 강화 수집 작업 (무드 태그 + 유사곡)
+from .enrichment import (
+    fetch_mood_tags_task,
+    fetch_similar_tracks_task,
+)
+
 __all__ = [
     # 공통
     'test_task',
@@ -68,4 +74,7 @@ __all__ = [
     'cleanup_old_realtime_charts',
     # 이미지 리사이징
     'resize_image_task',
+    # GraphRAG 강화 수집
+    'fetch_mood_tags_task',
+    'fetch_similar_tracks_task',
 ]
