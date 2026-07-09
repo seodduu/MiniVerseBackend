@@ -34,8 +34,9 @@ ytmusicapi                          # YouTube Music API (아티스트/앨범 이
 # ==============================================
 # AI 음악 생성 (LangChain + Ollama)
 # ==============================================
-langchain-community                 # LangChain 커뮤니티 통합 (ChatOllama)
+langchain-community                 # LangChain 커뮤니티 통합
 langchain-core                      # LangChain 핵심 컴포넌트 (프롬프트, 파서)
+langchain-ollama                    # Ollama 연동 (ChatOllama, langchain-community 0.3+에서 분리됨)
 
 # ==============================================
 # 환경 설정
@@ -63,3 +64,7 @@ drf-spectacular>=0.27.0,<0.28.0     # Swagger/OpenAPI 문서 자동 생성
 # 검색 엔진
 # ==============================================
 opensearch-py                       # AWS OpenSearch 클라이언트
+
+pytest                              # 테스트 러너
+pytest-django                       # Django 통합 (DB 픽스처, settings)
+responses                           # requests HTTP 목킹
