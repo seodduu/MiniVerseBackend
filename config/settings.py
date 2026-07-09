@@ -498,6 +498,12 @@ OPENSEARCH_USE_SSL = os.getenv('OPENSEARCH_USE_SSL', 'True') == 'True'
 OPENSEARCH_VERIFY_CERTS = os.getenv('OPENSEARCH_VERIFY_CERTS', 'True') == 'True'
 OPENSEARCH_INDEX_PREFIX = os.getenv('OPENSEARCH_INDEX_PREFIX', 'music')
 
+# ==============================================
+# Spotify Web API (Client Credentials)
+# ==============================================
+SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID', '')
+SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET', '')
+
 # S3 버킷이 설정된 경우에만 S3를 기본 스토리지로 사용
 # 단, DEBUG 모드에서는 로컬 정적 파일 스토리지 사용 (개발 편의성)
 if AWS_STORAGE_BUCKET_NAME and not DEBUG:
