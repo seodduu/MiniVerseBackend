@@ -95,7 +95,25 @@ class iTunesService:
             return None
         except requests.exceptions.RequestException:
             return None
-    
+
+    @classmethod
+    def search_preview(cls, artist: str, track: str, country: str = "KR") -> str:
+        """artist+곡명으로 iTunes를 검색해 첫 곡의 30초 미리듣기 URL을 반환. 없으면 빈 문자열."""
+        term = f"{artist} {track}".strip()
+        if not term:
+            return ""
+        try:
+            r = requests.get(cls.SEARCH_ENDPOINT, params={
+                "term": term, "entity": "song", "limit": 1, "country": country,
+            }, timeout=cls.TIMEOUT)
+            r.raise_for_status()
+            for result in r.json().get("results", []):
+                if result.get("kind") == "song" or result.get("wrapperType") == "track":
+                    return result.get("previewUrl", "") or ""
+            return ""
+        except requests.exceptions.RequestException:
+            return ""
+
     @classmethod
     def parse_track_data(cls, raw_data: Dict) -> Dict:
         """
