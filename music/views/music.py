@@ -6,10 +6,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from django.db import transaction
+from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
-from ..models import Music, Artists, Albums, MusicTags
+from ..models import Music, Artists, Albums, MusicTags, MusicAudioBlob
 from ..serializers import MusicDetailSerializer, MusicPlaySerializer, MusicTagGraphSerializer
 from ..serializers.base import TagSerializer
 from ..services import iTunesService
@@ -285,6 +286,58 @@ class MusicPlayView(APIView):
         return Response(serializer.data)
 
 
+class MusicAudioBlobView(APIView):
+    """Postgres에 저장된 AI 음악 오디오를 스트리밍합니다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="저장된 오디오 스트리밍",
+        description="Postgres music_audio_blob 테이블에 저장된 오디오를 반환합니다. Range 요청을 지원합니다.",
+        tags=['음악 재생']
+    )
+    def get(self, request, music_id):
+        try:
+            blob = MusicAudioBlob.objects.select_related('music').get(
+                music_id=music_id,
+                music__is_deleted=False,
+            )
+        except MusicAudioBlob.DoesNotExist:
+            return Response(
+                {'error': '저장된 오디오를 찾을 수 없습니다.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = bytes(blob.data)
+        size = len(data)
+        content_type = blob.content_type or 'audio/mpeg'
+        range_header = request.META.get('HTTP_RANGE')
+
+        if range_header and range_header.startswith('bytes='):
+            start_text, _, end_text = range_header.replace('bytes=', '', 1).partition('-')
+            try:
+                start = int(start_text) if start_text else 0
+                end = int(end_text) if end_text else size - 1
+                end = min(end, size - 1)
+                if start > end or start >= size:
+                    response = HttpResponse(status=416)
+                    response['Content-Range'] = f'bytes */{size}'
+                    return response
+            except ValueError:
+                start, end = 0, size - 1
+
+            chunk = data[start:end + 1]
+            response = HttpResponse(chunk, status=206, content_type=content_type)
+            response['Content-Range'] = f'bytes {start}-{end}/{size}'
+            response['Content-Length'] = str(len(chunk))
+        else:
+            response = HttpResponse(data, content_type=content_type)
+            response['Content-Length'] = str(size)
+
+        response['Accept-Ranges'] = 'bytes'
+        return response
+
+
 class MusicTagsView(APIView):
     """
     음악 태그 조회
@@ -444,4 +497,3 @@ class MusicCuratedStationView(APIView):
         """DJ 스테이션 데이터 조회"""
         station_data = MusicTagService.get_curated_station_data()
         return Response(station_data, status=status.HTTP_200_OK)
-

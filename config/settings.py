@@ -41,7 +41,6 @@ INSTALLED_APPS = [
     'corsheaders', # CORS 설정 (프론트엔드와 통신)
     'drf_spectacular', # Swagger/OpenAPI 문서 자동 생성
     'django_celery_results', # Celery 작업 결과를 DB에 저장하기 위해 추가
-    'storages', # Django 파일 스토리지 백엔드 (S3 연동)
     'django_prometheus', # Prometheus 메트릭 노출 (모니터링)
     # Local apps
     'music', # 우리가 만든 'music' 앱 추가
@@ -477,44 +476,8 @@ SPECTACULAR_SETTINGS = {
     'SECURITY': [{"jwtAuth": []}],
 }
 
-# ==============================================
-# AWS S3 파일 스토리지 설정
-# ==============================================
-# AWS S3를 기본 파일 스토리지로 사용 (버킷 이름이 설정된 경우)
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '')
-AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME', '')
-AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION_NAME', 'ap-northeast-2')
-AWS_S3_CUSTOM_DOMAIN = os.getenv('AWS_S3_CUSTOM_DOMAIN', f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com')
-
-# ==============================================
-# AWS OpenSearch 설정
-# ==============================================
-OPENSEARCH_HOST = os.getenv('OPENSEARCH_HOST', '')
-OPENSEARCH_PORT = int(os.getenv('OPENSEARCH_PORT', '443'))
-OPENSEARCH_USERNAME = os.getenv('OPENSEARCH_USERNAME', 'admin')
-OPENSEARCH_PASSWORD = os.getenv('OPENSEARCH_PASSWORD', '')
-OPENSEARCH_USE_SSL = os.getenv('OPENSEARCH_USE_SSL', 'True') == 'True'
-OPENSEARCH_VERIFY_CERTS = os.getenv('OPENSEARCH_VERIFY_CERTS', 'True') == 'True'
-OPENSEARCH_INDEX_PREFIX = os.getenv('OPENSEARCH_INDEX_PREFIX', 'music')
-
-# S3 버킷이 설정된 경우에만 S3를 기본 스토리지로 사용
-# 단, DEBUG 모드에서는 로컬 정적 파일 스토리지 사용 (개발 편의성)
-if AWS_STORAGE_BUCKET_NAME and not DEBUG:
-    # 프로덕션: S3 스토리지 사용
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-    STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
-    
-    # S3 설정
-    AWS_S3_OBJECT_PARAMETERS = {
-        'CacheControl': 'max-age=86400',  # 1일 캐시
-    }
-    AWS_DEFAULT_ACL = 'public-read'  # 퍼블릭 읽기 허용
-    AWS_QUERYSTRING_AUTH = False  # URL에 서명 불필요 (퍼블릭 파일)
-else:
-    # 개발 환경 또는 S3 미설정: 로컬 스토리지 사용
-    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
+DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
 # ==============================================
 # 로깅 설정 (슬로우 쿼리 및 성능 추적)
@@ -602,4 +565,3 @@ if not DEBUG:
         '()': SlowQueryFilter,
     }
     LOGGING['handlers']['slow_queries']['filters'] = ['slow_query_filter']
-

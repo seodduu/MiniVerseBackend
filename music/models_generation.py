@@ -36,7 +36,7 @@ class GenerationJob(models.Model):
 
 
 class MusicAudioBlob(models.Model):
-    """Postgres에 오디오 바이너리를 저장하는 곡당 1행 테이블 (S3 대체)."""
+    """Postgres에 오디오 바이너리를 저장하는 곡당 1행 테이블."""
 
     music = models.OneToOneField('Music', models.CASCADE, primary_key=True)
     content_type = models.CharField(max_length=100, default='audio/mpeg')

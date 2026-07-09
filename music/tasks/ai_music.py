@@ -5,10 +5,15 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 
-from ..models import Music, AiInfo, Users, Artists, Albums
-from ..music_generate.services import LlamaService, SunoAPIService
-from ..music_generate.utils import extract_genre_from_prompt
-from ..utils.s3_upload import download_and_upload_to_s3, is_suno_url, is_s3_url, upload_image_to_s3
+from ..models import Music, AiInfo
+from ..music_generate.services import SunoAPIService
+from ..services import AiMusicGenerationService
+from ..serializers.ai_music import MusicGenerateSimpleResponseSerializer
+from ..utils.media_storage import (
+    download_and_store_audio,
+    is_suno_url,
+    touch_music_audio_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,180 +33,21 @@ def generate_music_task(self, user_prompt: str, user_id: int = None, make_instru
         생성된 음악 정보 딕셔너리 (artist, album, music, ai_info 포함)
     """
     try:
-        # 1. Llama 서비스로 프롬프트 변환
-        llama_service = LlamaService()
-        english_prompt = llama_service.convert_to_music_prompt(user_prompt)
-        
-        if not english_prompt:
-            raise Exception("프롬프트 변환에 실패했습니다.")
-        
-        # 2. Suno API로 음악 생성
-        suno_service = SunoAPIService()
-        music_result = suno_service.generate_music(
-            prompt=english_prompt,
+        service = AiMusicGenerationService()
+        music, artist, album, ai_info = service.generate_music(
+            user_prompt=user_prompt,
+            user_id=user_id,
             make_instrumental=make_instrumental,
-            wait_audio=True,
-            timeout=120
-        )
-        
-        if not music_result:
-            raise Exception("음악 생성에 실패했습니다.")
-        
-        # 3. 사용자 확인
-        user = None
-        artist_name = "AI Artist"
-        if user_id:
-            try:
-                user = Users.objects.get(user_id=user_id, is_deleted=False)
-                artist_name = user.nickname if user.nickname else f"User {user.user_id}"
-            except Users.DoesNotExist:
-                pass
-        
-        now = timezone.now()
-        genre = extract_genre_from_prompt(english_prompt)
-        
-        # Suno API 응답 매핑
-        music_title = (
-            music_result.get('title') or 
-            music_result.get('name') or 
-            music_result.get('song_name') or 
-            music_result.get('data', {}).get('title') or
-            user_prompt[:50]
-        )
-        
-        audio_url = (
-            music_result.get('audio_url') or
-            music_result.get('audioUrl') or
-            music_result.get('url') or
-            music_result.get('audio') or
-            music_result.get('data', {}).get('audio_url')
-        )
-        
-        duration = (
-            music_result.get('duration') or
-            music_result.get('length') or
-            music_result.get('data', {}).get('duration')
-        )
-        
-        lyrics = (
-            music_result.get('lyrics') or
-            music_result.get('lyric') or
-            music_result.get('data', {}).get('lyrics')
-        )
-        
-        image_url = (
-            music_result.get('imageUrl') or
-            music_result.get('image_url') or
-            music_result.get('data', {}).get('image_url')
-        )
-        
-        # task_id 추출 (Webhook에서 사용)
-        task_id = music_result.get('taskId') or music_result.get('task_id') or 'unknown'
-        
-        # 4. Artists 모델에 저장 (먼저 생성하여 ID 확보)
-        artist = Artists.objects.create(
-            artist_name=artist_name,
-            artist_image=None,  # 이미지는 나중에 업데이트
-            created_at=now,
-            updated_at=now,
-            is_deleted=False
-        )
-        
-        # 5. Albums 모델에 AI 앨범 저장 (먼저 생성하여 ID 확보)
-        album = Albums.objects.create(
-            artist=artist,
-            album_name=f"AI Generated - {music_title}",
-            album_image=None,  # 이미지는 나중에 업데이트
-            created_at=now,
-            updated_at=now,
-            is_deleted=False
-        )
-        
-        # Suno 이미지 URL을 S3에 업로드 및 리사이징 (CORS 문제 해결)
-        if image_url and is_suno_url(image_url):
-            try:
-                logger.info(f"[S3 이미지 업로드] Suno 이미지를 S3에 업로드 중: {image_url}")
-                # 실제 album_id 사용하여 S3 업로드 및 리사이징
-                resized_urls = upload_image_to_s3(
-                    image_url=image_url,
-                    image_type='albums',
-                    entity_id=album.album_id,
-                    entity_name=f"ai_album_{user_prompt[:20]}"
-                )
-                logger.info(f"[S3 이미지 업로드] ✅ S3 업로드 완료")
-                logger.info(f"  - original: {resized_urls.get('original', 'N/A')[:60] if resized_urls.get('original') else 'N/A'}...")
-                logger.info(f"  - image_square (220x220): {resized_urls.get('image_square', 'N/A')[:60] if resized_urls.get('image_square') else 'N/A'}...")
-                logger.info(f"  - image_large_square (360x360): {resized_urls.get('image_large_square', 'N/A')[:60] if resized_urls.get('image_large_square') else 'N/A'}...")
-                
-                # Album 이미지 URL 업데이트
-                album.album_image = resized_urls.get('original', image_url)
-                album.image_square = resized_urls.get('image_square')
-                album.image_large_square = resized_urls.get('image_large_square')
-                album.save(update_fields=['album_image', 'image_square', 'image_large_square', 'updated_at'])
-                logger.info(f"[S3 이미지 업로드] ✅ Albums 이미지 URL 업데이트 완료: album_id={album.album_id}")
-                
-                # Artist 이미지도 동일하게 설정
-                artist.artist_image = resized_urls.get('original', image_url)
-                artist.save(update_fields=['artist_image', 'updated_at'])
-                logger.info(f"[S3 이미지 업로드] ✅ Artists 이미지 URL 업데이트 완료: artist_id={artist.artist_id}")
-                
-            except Exception as e:
-                logger.warning(f"[S3 이미지 업로드] ⚠️ S3 업로드 실패, 원본 URL 사용: {e}")
-                import traceback
-                traceback.print_exc()
-                # S3 업로드 실패 시 원본 URL 사용 (fallback)
-                album.album_image = image_url
-                album.save(update_fields=['album_image', 'updated_at'])
-                artist.artist_image = image_url
-                artist.save(update_fields=['artist_image', 'updated_at'])
-        elif image_url:
-            # Suno URL이 아닌 경우 원본 URL 사용
-            album.album_image = image_url
-            album.save(update_fields=['album_image', 'updated_at'])
-            artist.artist_image = image_url
-            artist.save(update_fields=['artist_image', 'updated_at'])
-            logger.info(f"[S3 이미지 업로드] 원본 이미지 URL 사용: {image_url[:60]}...")
-        
-        # 6. Music 모델에 저장
-        music = Music.objects.create(
-            user=user,
-            artist=artist,
-            album=album,
-            music_name=music_title,
-            audio_url=audio_url,
-            is_ai=True,
-            genre=genre,
-            duration=duration,
-            lyrics=lyrics,
-            valence=None,
-            arousal=None,
-            created_at=now,
-            updated_at=now,
-            is_deleted=False
-        )
-        
-        # 7. AiInfo 모델에 프롬프트 정보 저장
-        # task_id 필드를 직접 설정해야 webhook 태스크에서 찾을 수 있음
-        ai_info = AiInfo.objects.create(
-            music=music,
-            task_id=task_id,  # Webhook 태스크에서 이 필드로 검색함
-            input_prompt=f"TaskID: {task_id}\nOriginal: {user_prompt}\nConverted: {english_prompt}",
-            created_at=now,
-            updated_at=now,
-            is_deleted=False
+            timeout=120,
         )
 
-        # 8. S3 업로드 태스크 호출 (비동기)
-        if audio_url and is_suno_url(audio_url):
-            try:
-                logger.info(f"[S3 업로드] S3 오디오 업로드 태스크 호출: music_id={music.music_id}")
-                upload_suno_audio_to_s3_task.delay(music.music_id, audio_url)
-            except Exception as e:
-                logger.warning(f"[S3 업로드] S3 업로드 태스크 호출 실패 (계속 진행): {e}")
-
-        # 9. 결과 반환
         return {
             'success': True,
+            'data': MusicGenerateSimpleResponseSerializer.from_music_model(
+                music=music,
+                artist=artist,
+                album=album,
+            ),
             'artist': {
                 'artist_id': artist.artist_id,
                 'artist_name': artist.artist_name,
@@ -222,7 +68,7 @@ def generate_music_task(self, user_prompt: str, user_id: int = None, make_instru
             },
             'created_at': str(music.created_at)
         }
-        
+
     except Exception as e:
         # 재시도 로직
         if self.request.retries < self.max_retries:
@@ -235,9 +81,9 @@ def generate_music_task(self, user_prompt: str, user_id: int = None, make_instru
 
 
 @shared_task(bind=True, max_retries=3)
-def upload_suno_audio_to_s3_task(self, music_id: int, suno_audio_url: str):
+def store_suno_audio_in_postgres_task(self, music_id: int, suno_audio_url: str):
     """
-    Suno에서 생성된 오디오를 S3에 업로드하고 Music 모델의 audio_url을 업데이트합니다.
+    Suno에서 생성된 오디오를 Postgres에 저장하고 Music.audio_url을 로컬 스트리밍 URL로 업데이트합니다.
     
     Args:
         self: Celery task 인스턴스
@@ -245,55 +91,37 @@ def upload_suno_audio_to_s3_task(self, music_id: int, suno_audio_url: str):
         suno_audio_url: Suno CDN의 오디오 URL
         
     Returns:
-        업데이트된 S3 URL 또는 None (실패 시)
+        업데이트된 로컬 오디오 URL 또는 None (실패 시)
     """
     try:
         # Music 객체 조회
         try:
             music = Music.objects.get(music_id=music_id, is_deleted=False)
         except Music.DoesNotExist:
-            logger.error(f"[S3 업로드] Music 객체를 찾을 수 없습니다: music_id={music_id}")
+            logger.error(f"[오디오 저장] Music 객체를 찾을 수 없습니다: music_id={music_id}")
             return None
-        
-        # 이미 S3 URL이면 스킵
-        if is_s3_url(music.audio_url):
-            logger.info(f"[S3 업로드] 이미 S3 URL입니다: music_id={music_id}, url={music.audio_url}")
-            return music.audio_url
-        
+
         # Suno URL이 아니면 스킵
         if not is_suno_url(suno_audio_url):
-            logger.warning(f"[S3 업로드] Suno URL이 아닙니다: music_id={music_id}, url={suno_audio_url}")
+            logger.warning(f"[오디오 저장] Suno URL이 아닙니다: music_id={music_id}, url={suno_audio_url}")
             return None
-        
-        logger.info(f"[S3 업로드] 시작: music_id={music_id}, suno_url={suno_audio_url}")
-        
-        # 파일명 생성 (music_name 기반)
-        file_name = f"{music.music_name.replace(' ', '_')}.mp3" if music.music_name else None
-        
-        # S3 업로드
-        s3_url = download_and_upload_to_s3(
-            url=suno_audio_url,
-            file_name=file_name,
-            content_type='audio/mpeg'
-        )
-        
-        # Music 모델 업데이트
-        music.audio_url = s3_url
-        music.updated_at = timezone.now()
-        music.save()
-        
-        logger.info(f"[S3 업로드] 완료: music_id={music_id}, s3_url={s3_url}")
-        return s3_url
+
+        logger.info(f"[오디오 저장] 시작: music_id={music_id}, suno_url={suno_audio_url}")
+        blob = download_and_store_audio(music, suno_audio_url, content_type='audio/mpeg')
+        audio_url = touch_music_audio_url(music)
+
+        logger.info(f"[오디오 저장] 완료: music_id={music_id}, size={blob.size}, url={audio_url}")
+        return audio_url
         
     except Exception as e:
-        logger.error(f"[S3 업로드] 실패: music_id={music_id}, 오류: {e}")
+        logger.error(f"[오디오 저장] 실패: music_id={music_id}, 오류: {e}")
         
         # 재시도 로직
         if self.request.retries < self.max_retries:
-            logger.info(f"[S3 업로드] 재시도: {self.request.retries + 1}/{self.max_retries}")
+            logger.info(f"[오디오 저장] 재시도: {self.request.retries + 1}/{self.max_retries}")
             raise self.retry(exc=e, countdown=60)  # 1분 후 재시도
-        
-        logger.error(f"[S3 업로드] 최대 재시도 횟수 초과: music_id={music_id}")
+
+        logger.error(f"[오디오 저장] 최대 재시도 횟수 초과: music_id={music_id}")
         return None
 
 
@@ -470,12 +298,10 @@ def process_suno_webhook_task(self, webhook_data: dict):
         else:
             logger.info(f"[Webhook 태스크] 제목 유지 (Suno 제목 무효): {music.music_name}")
         
-        # audio_url: S3 URL이 아닐 때만 업데이트
-        if audio_url and not is_s3_url(music.audio_url):
+        # audio_url은 먼저 원본 URL을 저장하고, 별도 태스크가 Postgres 블롭 URL로 교체합니다.
+        if audio_url:
             music.audio_url = audio_url
             logger.info(f"[Webhook 태스크] audio_url 업데이트: {audio_url[:80]}...")
-        elif audio_url and is_s3_url(music.audio_url):
-            logger.info(f"[Webhook 태스크] audio_url은 이미 S3 URL - 유지")
         
         if duration:
             music.duration = duration
@@ -497,13 +323,13 @@ def process_suno_webhook_task(self, webhook_data: dict):
         
         logger.info(f"[Webhook 태스크] Music 업데이트 완료: music_id={music.music_id}")
         
-        # S3 업로드 태스크 호출
-        if audio_url and is_suno_url(audio_url) and not is_s3_url(audio_url):
+        # Postgres 오디오 저장 태스크 호출
+        if audio_url and is_suno_url(audio_url):
             try:
-                logger.info(f"[Webhook 태스크] S3 업로드 태스크 호출: music_id={music.music_id}")
-                upload_suno_audio_to_s3_task.delay(music.music_id, audio_url)
+                logger.info(f"[Webhook 태스크] Postgres 오디오 저장 태스크 호출: music_id={music.music_id}")
+                store_suno_audio_in_postgres_task.delay(music.music_id, audio_url)
             except Exception as e:
-                logger.error(f"[Webhook 태스크] S3 업로드 태스크 호출 실패: {e}")
+                logger.error(f"[Webhook 태스크] Postgres 오디오 저장 태스크 호출 실패: {e}")
         
         # 타임스탬프 가사 조회 태스크 호출 (가사가 있는 경우에만)
         # is_instrumental 필드가 Music 모델에 없으므로, 가사 존재 여부로 판단
@@ -529,34 +355,9 @@ def process_suno_webhook_task(self, webhook_data: dict):
         if album:
             album.album_name = f"AI Generated - {music.music_name}"
             
-            # 앨범 이미지를 S3로 업로드 (S3 URL이 아닐 때만)
-            if image_url and not is_s3_url(image_url):
-                try:
-                    logger.info(f"[Webhook 태스크] 앨범 이미지 S3 업로드 시작: album_id={album.album_id}")
-                    resized_urls = upload_image_to_s3(
-                        image_url=image_url,
-                        image_type='albums',
-                        entity_id=album.album_id,
-                        entity_name=album.album_name
-                    )
-                    # 원본 및 리사이징된 이미지 URL 저장
-                    album.album_image = resized_urls.get('original')
-                    album.image_square = resized_urls.get('image_square')  # 220x220
-                    album.image_large_square = resized_urls.get('image_large_square')  # 360x360
-                    logger.info(f"[Webhook 태스크] 앨범 이미지 S3 업로드 완료: album_id={album.album_id}")
-                    logger.info(f"  - original: {resized_urls.get('original', 'N/A')[:60] if resized_urls.get('original') else 'N/A'}...")
-                    logger.info(f"  - image_square: {resized_urls.get('image_square', 'N/A')[:60] if resized_urls.get('image_square') else 'N/A'}...")
-                    logger.info(f"  - image_large_square: {resized_urls.get('image_large_square', 'N/A')[:60] if resized_urls.get('image_large_square') else 'N/A'}...")
-                except Exception as upload_error:
-                    # S3 업로드 실패 시 원본 URL이라도 저장
-                    logger.warning(f"[Webhook 태스크] 앨범 이미지 S3 업로드 실패, 원본 URL 저장: {upload_error}")
-                    import traceback
-                    traceback.print_exc()
-                    album.album_image = image_url
-            elif image_url:
-                # 이미 S3 URL이면 그대로 저장
+            if image_url:
                 album.album_image = image_url
-                logger.info(f"[Webhook 태스크] 앨범 이미지가 이미 S3 URL - 유지: album_id={album.album_id}")
+                logger.info(f"[Webhook 태스크] 앨범 이미지 원본 URL 저장: album_id={album.album_id}")
             
             album.updated_at = now
             album.save()

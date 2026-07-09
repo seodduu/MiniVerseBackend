@@ -17,7 +17,7 @@ from .metadata import (
 # AI 음악 생성 작업
 from .ai_music import (
     generate_music_task,
-    upload_suno_audio_to_s3_task,
+    store_suno_audio_in_postgres_task,
     fetch_timestamped_lyrics_task,
     process_suno_webhook_task,
 )
@@ -40,11 +40,6 @@ from .cleanup import (
     cleanup_old_realtime_charts,
 )
 
-# 이미지 리사이징 작업
-from .image_resize import (
-    resize_image_task,
-)
-
 __all__ = [
     # 공통
     'test_task',
@@ -54,7 +49,7 @@ __all__ = [
     'fetch_lyrics_task',
     # AI 음악
     'generate_music_task',
-    'upload_suno_audio_to_s3_task',
+    'store_suno_audio_in_postgres_task',
     'fetch_timestamped_lyrics_task',
     'process_suno_webhook_task',
     # iTunes
@@ -66,6 +61,4 @@ __all__ = [
     # 정리
     'cleanup_old_playlogs',
     'cleanup_old_realtime_charts',
-    # 이미지 리사이징
-    'resize_image_task',
 ]

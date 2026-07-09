@@ -5,13 +5,12 @@ AI 음악 생성 비즈니스 로직 서비스
 - Llama를 통한 프롬프트 변환
 - Suno API를 통한 음악 생성
 - DB에 Music, Artist, Album, AiInfo 저장
-- S3 업로드 및 가사 조회 비동기 작업 큐잉
+- Postgres 오디오 저장 및 가사 조회 비동기 작업 큐잉
 
 View에서는 이 서비스를 호출하고 HTTP 응답만 생성합니다.
 """
 import os
 import json
-import traceback
 from typing import Dict, Optional, Tuple
 from django.utils import timezone
 from django.db import transaction
@@ -19,11 +18,7 @@ from django.db import transaction
 from music.models import Music, AiInfo, Users, Artists, Albums
 from music.music_generate.services import LlamaService, SunoAPIService
 from music.music_generate.utils import extract_genre_from_prompt
-from music.music_generate.exceptions import (
-    SunoAPIError, 
-    SunoCreditInsufficientError, 
-    SunoAuthenticationError
-)
+from music.music_generate.exceptions import SunoAPIError
 
 
 class AiMusicGenerationService:
@@ -100,7 +95,7 @@ class AiMusicGenerationService:
             llama_prompt=llama_prompt
         )
         
-        # 6. 비동기 작업 큐잉 (타임스탬프 가사, S3 업로드)
+        # 6. 비동기 작업 큐잉 (타임스탬프 가사, Postgres 오디오 저장)
         self._queue_async_tasks(
             music=music,
             make_instrumental=make_instrumental,
@@ -310,8 +305,6 @@ class AiMusicGenerationService:
         Returns:
             (Music, Artists, Albums, AiInfo) 튜플
         """
-        from music.utils.s3_upload import upload_image_to_s3, is_suno_url
-        
         now = timezone.now()
         
         # Artists 저장 (먼저 생성하여 ID 확보)
@@ -338,51 +331,14 @@ class AiMusicGenerationService:
         )
         print(f"[DB 저장] ✅ Albums 저장 완료: album_id={album.album_id}")
         
-        # Suno 이미지 URL을 S3에 업로드 및 리사이징 (CORS 문제 해결)
+        # 이미지 URL은 별도 외부 저장소 없이 DB 문자열 필드에 그대로 저장합니다.
         album_image_url = music_data['image_url']
-        if album_image_url and is_suno_url(album_image_url):
-            try:
-                print(f"[S3 이미지 업로드] Suno 이미지를 S3에 업로드 중: {album_image_url}")
-                # 실제 album_id 사용하여 S3 업로드 및 리사이징
-                resized_urls = upload_image_to_s3(
-                    image_url=album_image_url,
-                    image_type='albums',
-                    entity_id=album.album_id,
-                    entity_name=f"ai_album_{user_prompt[:20]}"
-                )
-                print(f"[S3 이미지 업로드] ✅ S3 업로드 완료")
-                print(f"  - original: {resized_urls.get('original', 'N/A')[:60]}...")
-                print(f"  - image_square (220x220): {resized_urls.get('image_square', 'N/A')[:60]}...")
-                print(f"  - image_large_square (360x360): {resized_urls.get('image_large_square', 'N/A')[:60]}...")
-                
-                # Album 이미지 URL 업데이트
-                album.album_image = resized_urls.get('original', album_image_url)
-                album.image_square = resized_urls.get('image_square')
-                album.image_large_square = resized_urls.get('image_large_square')
-                album.save(update_fields=['album_image', 'image_square', 'image_large_square', 'updated_at'])
-                print(f"[DB 저장] ✅ Albums 이미지 URL 업데이트 완료")
-                
-                # Artist 이미지도 동일하게 설정
-                artist.artist_image = resized_urls.get('original', album_image_url)
-                artist.save(update_fields=['artist_image', 'updated_at'])
-                print(f"[DB 저장] ✅ Artists 이미지 URL 업데이트 완료")
-                
-            except Exception as e:
-                print(f"[S3 이미지 업로드] ⚠️ S3 업로드 실패, 원본 URL 사용: {e}")
-                traceback.print_exc()
-                # S3 업로드 실패 시 원본 URL 사용 (fallback)
-                album.album_image = album_image_url
-                album.save(update_fields=['album_image', 'updated_at'])
-                artist.artist_image = album_image_url
-                artist.save(update_fields=['artist_image', 'updated_at'])
-        else:
-            # Suno URL이 아니거나 이미지가 없는 경우
-            if album_image_url:
-                album.album_image = album_image_url
-                album.save(update_fields=['album_image', 'updated_at'])
-                artist.artist_image = album_image_url
-                artist.save(update_fields=['artist_image', 'updated_at'])
-                print(f"[DB 저장] 원본 이미지 URL 사용: {album_image_url[:60]}...")
+        if album_image_url:
+            album.album_image = album_image_url
+            album.save(update_fields=['album_image', 'updated_at'])
+            artist.artist_image = album_image_url
+            artist.save(update_fields=['artist_image', 'updated_at'])
+            print(f"[DB 저장] 원본 이미지 URL 사용: {album_image_url[:60]}...")
         
         # Music 저장
         print(f"[DB 저장] Music 저장 시작:")
@@ -434,9 +390,9 @@ class AiMusicGenerationService:
         audio_id: Optional[str],
         audio_url: Optional[str]
     ):
-        """비동기 작업 큐잉 (타임스탬프 가사, S3 업로드)"""
-        from music.tasks import upload_suno_audio_to_s3_task, fetch_timestamped_lyrics_task
-        from music.utils.s3_upload import is_suno_url, is_s3_url
+        """비동기 작업 큐잉 (타임스탬프 가사, Postgres 오디오 저장)"""
+        from music.tasks import store_suno_audio_in_postgres_task, fetch_timestamped_lyrics_task
+        from music.utils.media_storage import is_suno_url
         
         # 타임스탬프 가사 조회
         if not make_instrumental and task_id and task_id != 'unknown' and audio_url:
@@ -447,14 +403,14 @@ class AiMusicGenerationService:
             except Exception as e:
                 print(f"[타임스탬프 가사] 태스크 호출 실패 (치명적이지 않음): {e}")
         
-        # S3 업로드
-        if audio_url and is_suno_url(audio_url) and not is_s3_url(audio_url):
+        # Postgres 오디오 저장
+        if audio_url and is_suno_url(audio_url):
             try:
-                print(f"[S3 업로드] 태스크 호출: music_id={music.music_id}, suno_url={audio_url}")
-                upload_suno_audio_to_s3_task.delay(music.music_id, audio_url)
-                print(f"[S3 업로드] ✅ 태스크 큐에 추가됨 (비동기 처리)")
+                print(f"[오디오 저장] 태스크 호출: music_id={music.music_id}, suno_url={audio_url}")
+                store_suno_audio_in_postgres_task.delay(music.music_id, audio_url)
+                print(f"[오디오 저장] ✅ 태스크 큐에 추가됨 (비동기 처리)")
             except Exception as e:
-                print(f"[S3 업로드] 태스크 호출 실패 (치명적이지 않음): {e}")
+                print(f"[오디오 저장] 태스크 호출 실패 (치명적이지 않음): {e}")
 
 
 class AiMusicServiceError(Exception):

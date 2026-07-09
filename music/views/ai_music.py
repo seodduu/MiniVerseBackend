@@ -2,14 +2,13 @@
 AI 음악 생성 API Views
 
 이 모듈은 AI 음악 생성의 API 엔드포인트를 제공합니다.
-기존 legacy.py의 FBV를 CBV로 전환하고 Service Layer를 활용합니다.
+View는 요청/응답만 다루고 생성 로직은 Service Layer에 위임합니다.
 """
 import traceback
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
-from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from celery.result import AsyncResult
@@ -42,7 +41,7 @@ class AiMusicGenerateView(APIView):
     
     POST /api/music/generate/
     
-    기존 legacy.py의 generate_music 함수를 CBV로 전환했습니다.
+    생성 로직은 AiMusicGenerationService가 담당합니다.
     """
     permission_classes = [AllowAny]
     parser_classes = [FlexibleJSONParser]
@@ -276,7 +275,7 @@ class MusicListView(APIView):
     
     GET /api/music/
     
-    기존 legacy.py의 list_music 함수를 CBV로 전환했습니다.
+    AI 음악 목록을 조회합니다.
     """
     permission_classes = [AllowAny]
     
@@ -365,7 +364,7 @@ class MusicDetailView(APIView):
     
     GET /api/music/{music_id}/
     
-    기존 legacy.py의 get_music_detail 함수를 CBV로 전환했습니다.
+    AI 음악 상세 정보를 조회합니다.
     """
     permission_classes = [AllowAny]
     
@@ -405,7 +404,7 @@ class SunoTaskStatusView(APIView):
     
     GET /api/music/suno-task/{task_id}/
     
-    기존 legacy.py의 get_suno_task_status 함수를 CBV로 전환했습니다.
+    Suno API 작업 상태를 조회합니다.
     """
     permission_classes = [AllowAny]
     

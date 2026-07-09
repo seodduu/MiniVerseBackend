@@ -19,5 +19,5 @@ class GenerationJobSerializer(serializers.ModelSerializer):
 
     def get_audio_url(self, obj):
         if obj.music_id:
-            return f"/api/v1/music/{obj.music_id}/audio/"
+            return f"/api/v1/tracks/{obj.music_id}/audio/"
         return None

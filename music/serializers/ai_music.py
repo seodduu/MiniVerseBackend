@@ -2,7 +2,6 @@
 AI 음악 생성 Serializers
 
 이 모듈은 AI 음악 생성 API의 요청/응답 데이터 검증 및 변환을 담당합니다.
-기존 legacy_serializers.py의 로직을 개선하고 재사용 가능하게 구성했습니다.
 """
 from rest_framework import serializers
 from ..models import Music, AiInfo, Artists, Albums
@@ -154,10 +153,7 @@ class MusicGenerateResponseSerializer(serializers.ModelSerializer):
 
 class MusicGenerateSimpleResponseSerializer(serializers.Serializer):
     """
-    AI 음악 생성 간단한 응답 직렬화 (기존 legacy 응답 형식 호환)
-    
-    이 Serializer는 기존 legacy.py의 응답 형식과 동일하게 유지하여
-    프론트엔드 호환성을 보장합니다.
+    AI 음악 생성 간단한 응답 직렬화.
     """
     music_id = serializers.IntegerField(help_text="생성된 음악 ID")
     music_name = serializers.CharField(help_text="음악 제목")
@@ -225,7 +221,7 @@ class MusicListSerializer(serializers.ModelSerializer):
     """
     음악 목록 조회용 Serializer
     
-    기존 legacy의 list_music에서 사용하던 형식을 개선했습니다.
+    음악 목록 조회용 응답 형식입니다.
     """
     artist_name = serializers.CharField(
         source='artist.artist_name', 

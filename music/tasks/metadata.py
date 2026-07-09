@@ -6,7 +6,6 @@ from celery import shared_task
 from django.utils import timezone
 
 from ..models import Music, Artists, Albums
-from ..utils.s3_upload import upload_image_to_s3, is_s3_url
 from ..services import WikidataService, LRCLIBService, DeezerService, LyricsOvhService
 from ..services.ytmusic import YTMusicService
 
@@ -16,25 +15,19 @@ logger = logging.getLogger(__name__)
 @shared_task(bind=True, max_retries=2)
 def fetch_artist_image_task(self, artist_id: int, artist_name: str):
     """
-    아티스트 이미지를 비동기로 조회하고 S3에 업로드 후 DB 업데이트
+    아티스트 이미지를 비동기로 조회하고 DB 업데이트
     
     API 호출 순서 (fallback 체인):
     1. YouTube Music API (1차)
     2. Wikidata API (2차 fallback)
     3. Deezer API (3차 fallback)
     
-    이미지 처리:
-    1. 외부 API에서 이미지 URL 조회
-    2. S3에 업로드 (media/images/artists/original/)
-    3. Celery 태스크가 자동으로 리사이징 (원형 228x228, 208x208 / 사각형 220x220)
-    4. DB에 S3 URL 저장
-    
     Args:
         artist_id: Artist 모델의 ID
         artist_name: 아티스트 이름
         
     Returns:
-        S3 이미지 URL 또는 None
+        이미지 URL 또는 None
     """
     try:
         logger.info(f"[아티스트 이미지] 조회 시작: artist_id={artist_id}, name={artist_name}")
@@ -46,13 +39,9 @@ def fetch_artist_image_task(self, artist_id: int, artist_name: str):
             logger.error(f"[아티스트 이미지] Artist를 찾을 수 없음: artist_id={artist_id}")
             return None
         
-        # 이미 S3 이미지가 있으면 스킵
         if artist.artist_image and artist.artist_image.strip():
-            if is_s3_url(artist.artist_image):
-                logger.info(f"[아티스트 이미지] 이미 S3 이미지가 있음: artist_id={artist_id}")
-                return artist.artist_image
-            # S3 URL이 아니면 새로 업로드 진행
-            logger.info(f"[아티스트 이미지] 기존 URL이 S3가 아님, S3로 업로드 진행: artist_id={artist_id}")
+            logger.info(f"[아티스트 이미지] 이미 이미지가 있음: artist_id={artist_id}")
+            return artist.artist_image
         
         image_url = None
         source = None
@@ -77,38 +66,11 @@ def fetch_artist_image_task(self, artist_id: int, artist_name: str):
                 source = "Deezer"
         
         if image_url:
-            # S3에 이미지 업로드 (Celery 태스크가 리사이징)
-            try:
-                resized_urls = upload_image_to_s3(
-                    image_url=image_url,
-                    image_type='artists',
-                    entity_id=artist_id,
-                    entity_name=artist_name
-                )
-                logger.info(f"[아티스트 이미지] S3 업로드 완료 ({source}): artist_id={artist_id}")
-                
-                # DB 업데이트 (원본 + 리사이징된 이미지 URL 저장)
-                artist.artist_image = resized_urls.get('original')
-                artist.image_large_circle = resized_urls.get('image_large_circle')  # 228x228
-                artist.image_small_circle = resized_urls.get('image_small_circle')  # 208x208
-                artist.image_square = resized_urls.get('image_square')  # 220x220
-                artist.updated_at = timezone.now()
-                artist.save()
-                logger.info(f"[아티스트 이미지] DB 저장 완료: artist_id={artist_id}")
-                logger.info(f"  - 원본: {resized_urls.get('original', '')[:60]}...")
-                logger.info(f"  - 큰 원: {resized_urls.get('image_large_circle', '')[:60]}...")
-                logger.info(f"  - 작은 원: {resized_urls.get('image_small_circle', '')[:60]}...")
-                logger.info(f"  - 사각형: {resized_urls.get('image_square', '')[:60]}...")
-                return resized_urls.get('original')
-                
-            except Exception as upload_error:
-                # S3 업로드 실패 시 원본 URL이라도 저장
-                logger.warning(f"[아티스트 이미지] S3 업로드 실패, 원본 URL 저장: {upload_error}")
-                artist.artist_image = image_url
-                artist.updated_at = timezone.now()
-                artist.save()
-                logger.info(f"[아티스트 이미지] 원본 URL 저장 완료 ({source}): artist_id={artist_id}")
-                return image_url
+            artist.artist_image = image_url
+            artist.updated_at = timezone.now()
+            artist.save(update_fields=['artist_image', 'updated_at'])
+            logger.info(f"[아티스트 이미지] 원본 URL 저장 완료 ({source}): artist_id={artist_id}")
+            return image_url
         else:
             logger.info(f"[아티스트 이미지] 모든 API에서 이미지를 찾지 못함: artist_id={artist_id}")
             return None
@@ -126,17 +88,11 @@ def fetch_artist_image_task(self, artist_id: int, artist_name: str):
 @shared_task(bind=True, max_retries=2)
 def fetch_album_image_task(self, album_id: int, album_name: str, album_image_url: str = None, artist_name: str = None):
     """
-    앨범 이미지를 S3에 업로드하고 리사이징된 URL을 DB에 저장
+    앨범 이미지를 조회하고 DB에 저장
     
     API 호출 순서 (fallback 체인):
     1. YouTube Music API (1차)
     2. iTunes API (2차 fallback, album_image_url 사용)
-    
-    이미지 처리:
-    1. 외부 API에서 이미지 URL 조회
-    2. S3에 업로드 (media/images/albums/original/)
-    3. Celery 태스크가 리사이징 (사각형 220x220, 360x360)
-    4. DB에 원본 + 리사이징된 URL 저장
     
     Args:
         album_id: Album 모델의 ID
@@ -145,7 +101,7 @@ def fetch_album_image_task(self, album_id: int, album_name: str, album_image_url
         artist_name: 아티스트 이름 (YouTube Music 검색 정확도 향상용, 선택사항)
         
     Returns:
-        S3 이미지 URL 또는 None
+        이미지 URL 또는 None
     """
     try:
         logger.info(f"[앨범 이미지] 조회 시작: album_id={album_id}, name={album_name}")
@@ -157,13 +113,9 @@ def fetch_album_image_task(self, album_id: int, album_name: str, album_image_url
             logger.error(f"[앨범 이미지] Album을 찾을 수 없음: album_id={album_id}")
             return None
         
-        # 이미 S3 이미지가 있으면 스킵
         if album.album_image and album.album_image.strip():
-            if is_s3_url(album.album_image):
-                logger.info(f"[앨범 이미지] 이미 S3 이미지가 있음: album_id={album_id}")
-                return album.album_image
-            # S3 URL이 아니면 새로 업로드 진행
-            logger.info(f"[앨범 이미지] 기존 URL이 S3가 아님, S3로 업로드 진행: album_id={album_id}")
+            logger.info(f"[앨범 이미지] 이미 이미지가 있음: album_id={album_id}")
+            return album.album_image
         
         image_url = None
         source = None
@@ -187,36 +139,11 @@ def fetch_album_image_task(self, album_id: int, album_name: str, album_image_url
             logger.info(f"[앨범 이미지] 모든 소스에서 이미지를 찾지 못함: album_id={album_id}")
             return None
         
-        # S3에 이미지 업로드 (Celery 태스크가 리사이징)
-        try:
-            resized_urls = upload_image_to_s3(
-                image_url=image_url,
-                image_type='albums',
-                entity_id=album_id,
-                entity_name=album_name
-            )
-            logger.info(f"[앨범 이미지] S3 업로드 완료 ({source}): album_id={album_id}")
-            
-            # DB 업데이트 (원본 + 리사이징된 이미지 URL 저장)
-            album.album_image = resized_urls.get('original')
-            album.image_square = resized_urls.get('image_square')  # 220x220
-            album.image_large_square = resized_urls.get('image_large_square')  # 360x360
-            album.updated_at = timezone.now()
-            album.save()
-            logger.info(f"[앨범 이미지] DB 저장 완료: album_id={album_id}")
-            logger.info(f"  - 원본: {resized_urls.get('original', '')[:60]}...")
-            logger.info(f"  - 사각형 220x220: {resized_urls.get('image_square', '')[:60]}...")
-            logger.info(f"  - 사각형 360x360: {resized_urls.get('image_large_square', '')[:60]}...")
-            return resized_urls.get('original')
-            
-        except Exception as upload_error:
-            # S3 업로드 실패 시 원본 URL이라도 저장
-            logger.warning(f"[앨범 이미지] S3 업로드 실패, 원본 URL 저장: {upload_error}")
-            album.album_image = image_url
-            album.updated_at = timezone.now()
-            album.save()
-            logger.info(f"[앨범 이미지] 원본 URL 저장 완료 ({source}): album_id={album_id}")
-            return image_url
+        album.album_image = image_url
+        album.updated_at = timezone.now()
+        album.save(update_fields=['album_image', 'updated_at'])
+        logger.info(f"[앨범 이미지] 원본 URL 저장 완료 ({source}): album_id={album_id}")
+        return image_url
             
     except Exception as e:
         logger.error(f"[앨범 이미지] 실패: album_id={album_id}, 오류: {e}")
