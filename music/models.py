@@ -35,7 +35,7 @@ class Albums(TrackableMixin, models.Model):
     image_square = models.TextField(blank=True, null=True)  # 220x220 사각형 이미지
     image_large_square = models.TextField(blank=True, null=True)  # 360x360 사각형 이미지
     # created_at, updated_at, is_deleted는 TrackableMixin에서 제공
-    spotify_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
+    deezer_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
     release_date = models.DateField(blank=True, null=True)
 
     objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
@@ -72,7 +72,7 @@ class Artists(TrackableMixin, models.Model):
     image_large_circle = models.TextField(blank=True, null=True)  # 228x228 원형 이미지
     image_small_circle = models.TextField(blank=True, null=True)  # 208x208 원형 이미지
     image_square = models.TextField(blank=True, null=True)  # 220x220 사각형 이미지
-    spotify_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
+    deezer_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
 
     objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
     all_objects = models.Manager()  # 모든 레코드 (삭제된 것 포함)
@@ -303,7 +303,7 @@ class Music(TrackableMixin, models.Model):
     valence = models.DecimalField(max_digits=10, decimal_places=6, blank=True, null=True)
     arousal = models.DecimalField(max_digits=10, decimal_places=6, blank=True, null=True)
     itunes_id = models.BigIntegerField(blank=True, null=True)
-    spotify_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
+    deezer_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
     isrc = models.CharField(max_length=32, blank=True, null=True)
 
     objects = SoftDeleteManager()  # 삭제되지 않은 레코드만 조회
