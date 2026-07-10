@@ -26,6 +26,25 @@ class iTunesSearchResultSerializer(serializers.Serializer):
     has_matching_tags = serializers.BooleanField(default=False)  # 태그 검색 시 매칭 여부
 
 
+class SpotifySearchResultSerializer(serializers.Serializer):
+    """
+    Spotify 검색 결과용 Serializer
+
+    - 필드 순서: spotify_id, music_name, artist_name, album_name,
+      album_image(640px), audio_url, isrc, spotify_url, in_db, has_matching_tags
+    """
+    spotify_id = serializers.CharField(allow_blank=True)
+    music_name = serializers.CharField()
+    artist_name = serializers.CharField(allow_blank=True)
+    album_name = serializers.CharField(allow_blank=True)
+    album_image = serializers.CharField(allow_null=True, allow_blank=True)  # 640px 커버
+    audio_url = serializers.CharField(allow_null=True, allow_blank=True)  # 상세/재생 조회 시 ISRC로 채워짐
+    isrc = serializers.CharField(allow_null=True, allow_blank=True)
+    spotify_url = serializers.CharField(allow_null=True, allow_blank=True)
+    in_db = serializers.BooleanField(default=False)  # DB에 이미 저장되어 있는지 여부
+    has_matching_tags = serializers.BooleanField(default=False)  # 태그 검색 시 매칭 여부
+
+
 class AiMusicSearchResultSerializer(serializers.Serializer):
     """
     AI 음악 검색 결과용 Serializer
