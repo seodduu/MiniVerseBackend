@@ -17,4 +17,4 @@ def test_music_tags_allows_multiple_tags_per_track():
 def test_new_columns_exist():
     cols = {c.name for c in connection.introspection.get_table_description(
         connection.cursor(), 'music')}
-    assert 'spotify_id' in cols and 'isrc' in cols and 'lyrics' not in cols
+    assert 'deezer_id' in cols and 'isrc' in cols and 'lyrics' not in cols

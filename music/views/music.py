@@ -1,5 +1,5 @@
 """
-음악 상세 관련 Views - Spotify ID 기반 상세 조회, 음악 재생, 태그 조회
+음악 상세 관련 Views - Deezer ID 기반 상세 조회, 음악 재생, 태그 조회
 """
 from rest_framework import status
 from rest_framework.response import Response
@@ -11,103 +11,103 @@ from drf_spectacular.types import OpenApiTypes
 from ..models import Music, MusicTags
 from ..serializers import MusicDetailSerializer, MusicPlaySerializer, MusicTagGraphSerializer
 from ..serializers.base import TagSerializer
-from ..services.external.spotify import SpotifyService
+from ..services.external.deezer import DeezerService
 from ..services.internal.music_tag_service import MusicTagService
-from ..tasks import save_spotify_track_to_db_task
+from ..tasks import save_deezer_track_to_db_task
 
 
 class MusicDetailView(APIView):
     """
-    Spotify ID 기반 음악 상세 조회
+    Deezer ID 기반 음악 상세 조회
 
     - DB에 있으면: DB 데이터 반환 (태그, 좋아요 포함)
-    - DB에 없으면: Spotify API 조회 → 저장은 백그라운드 태스크로 비동기 처리 → 즉시 응답
+    - DB에 없으면: Deezer API 조회 → 저장은 백그라운드 태스크로 비동기 처리 → 즉시 응답
 
-    GET /api/v1/tracks/{spotify_id}
+    GET /api/v1/tracks/{deezer_id}
     """
     permission_classes = [AllowAny]
 
     @extend_schema(
-        summary="Spotify ID로 음악 상세 조회",
+        summary="Deezer ID로 음악 상세 조회",
         description="""
-        Spotify Track ID를 사용하여 음악 상세 정보 조회
+        Deezer Track ID를 사용하여 음악 상세 정보 조회
 
         **동작 (성능 최적화):**
         - DB에 이미 있으면: DB 데이터 반환 (200 OK)
-        - DB에 없으면: Spotify API 조회 → 즉시 응답 (202 Accepted)
-          - DB 저장은 백그라운드로 비동기 처리 (save_spotify_track_to_db_task)
+        - DB에 없으면: Deezer API 조회 → 즉시 응답 (202 Accepted)
+          - DB 저장은 백그라운드로 비동기 처리 (save_deezer_track_to_db_task)
 
         **저장 내용 (백그라운드):**
-        - Artist, Album 자동 생성/조회
-        - Music 정보 저장 (미리듣기 URL은 ISRC 기반 iTunes 조회로 보강)
+        - Artist, Album 자동 생성/조회 (Deezer 응답에 포함된 아티스트 이미지 직접 사용)
+        - Music 정보 저장 (미리듣기 URL은 Deezer 응답의 preview_url을 그대로 사용)
         - 태그는 빈 상태로 저장 (추후 무드 태그 태스크가 채움)
         """,
         parameters=[
             OpenApiParameter(
-                name='spotify_id',
+                name='deezer_id',
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description='Spotify Track ID (검색 결과에서 확인 가능)',
+                description='Deezer Track ID (검색 결과에서 확인 가능)',
                 required=True,
                 examples=[
                     OpenApiExample(
                         name='예시',
-                        value='4uLU6hMCjMI75M1A2tKUQC',
-                        description='Spotify Track ID 예시'
+                        value='3135556',
+                        description='Deezer Track ID 예시'
                     )
                 ]
             )
         ],
         responses={
             200: MusicDetailSerializer,
-            202: {'description': 'Accepted - Spotify 데이터 반환 (DB 저장은 백그라운드 처리 중)'},
-            404: {'description': 'Not Found - Spotify에서 해당 ID를 찾을 수 없음'}
+            202: {'description': 'Accepted - Deezer 데이터 반환 (DB 저장은 백그라운드 처리 중)'},
+            404: {'description': 'Not Found - Deezer에서 해당 ID를 찾을 수 없음'}
         },
         tags=['음악 상세']
     )
-    def get(self, request, spotify_id):
-        """Spotify ID로 음악 상세 조회 (DB 저장은 백그라운드로 비동기 처리)"""
+    def get(self, request, deezer_id):
+        """Deezer ID로 음악 상세 조회 (DB 저장은 백그라운드로 비동기 처리)"""
 
         # 1. DB에서 조회 (이미 저장된 곡인지 확인)
         # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
         try:
-            music = Music.objects.select_related('artist', 'album').get(spotify_id=spotify_id)
+            music = Music.objects.select_related('artist', 'album').get(deezer_id=deezer_id)
             # DB에 이미 있으면 바로 반환 (빠른 응답)
             serializer = MusicDetailSerializer(music)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Music.DoesNotExist:
-            # 2. DB에 없으면 Spotify API 호출 (외부 API 호출)
-            track = SpotifyService.get_track(spotify_id)
+            # 2. DB에 없으면 Deezer API 호출 (외부 API 호출)
+            track = DeezerService.get_track(deezer_id)
 
             if not track:
                 return Response(
-                    {'error': '해당 Spotify ID의 음악을 찾을 수 없습니다.'},
+                    {'error': '해당 Deezer ID의 음악을 찾을 수 없습니다.'},
                     status=status.HTTP_404_NOT_FOUND
                 )
 
             # 3. 🚀 핵심: DB 저장은 Celery 백그라운드로 비동기 처리
             #    - 사용자는 즉시 응답 받음
             #    - Celery 워커가 백그라운드에서 DB에 저장 처리
-            save_spotify_track_to_db_task.delay(track)
+            save_deezer_track_to_db_task.delay(track)
 
-            # 4. Spotify 데이터를 즉시 응답 반환 (DB 저장 완료를 기다리지 않음)
+            # 4. Deezer 데이터를 즉시 응답 반환 (DB 저장 완료를 기다리지 않음)
             #    - 프론트엔드는 이 데이터로 바로 음악 재생 가능
             #    - DB 저장은 백그라운드에서 진행 중
             response_data = {
-                'spotify_id': track.get('spotify_id'),
+                'deezer_id': track.get('deezer_id'),
                 'music_name': track.get('music_name'),
                 'artist': {
                     'artist_name': track.get('artist_name'),
                 },
                 'album': {
                     'album_name': track.get('album_name'),
-                    'album_image': track.get('album_image_640'),
+                    'album_image': track.get('album_image'),
                 },
                 'duration': track.get('duration'),
-                'audio_url': None,  # 미리듣기 URL은 백그라운드 저장 시 ISRC로 조회됨
-                'spotify_url': track.get('spotify_url'),
-                'is_ai': False,  # Spotify 곡은 AI 생성곡이 아님
+                'audio_url': track.get('preview_url'),  # Deezer 응답에 30초 프리뷰 포함
+                'deezer_url': track.get('deezer_url'),
+                'is_ai': False,  # Deezer 곡은 AI 생성곡이 아님
                 'tags': [],  # 새로 저장되는 곡은 태그 없음
                 'created_at': timezone.now().isoformat(),
             }

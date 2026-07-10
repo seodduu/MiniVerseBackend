@@ -12,17 +12,17 @@ from django.db.models import Q, Prefetch
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 from ..models import Music, MusicTags, Tags, AiInfo
-from ..serializers import SpotifySearchResultSerializer, AiMusicSearchResultSerializer, TagMusicSearchSerializer
-from ..services.external.spotify import SpotifyService
+from ..serializers import DeezerSearchResultSerializer, AiMusicSearchResultSerializer, TagMusicSearchSerializer
+from ..services.external.deezer import DeezerService
 from .common import MusicPagination
 
 
 class MusicSearchView(APIView):
     """
-    Spotify API 기반 음악 검색
+    Deezer API 기반 음악 검색
 
     - 검색어 파싱: 일반 검색어 + 태그 (#으로 구분)
-    - Spotify API 우선 호출 (앨범 커버 640px, ISRC, spotify_url 포함)
+    - Deezer API 우선 호출 (앨범 커버, ISRC, 30초 프리뷰, deezer_url 포함)
     - 태그 필터링 지원
 
     GET /api/v1/search?q={검색어}&page={num}&page_size={num}
@@ -58,9 +58,9 @@ class MusicSearchView(APIView):
         return {"term": term, "tags": tags}
     
     @extend_schema(
-        summary="Spotify 음악 검색",
+        summary="Deezer 음악 검색",
         description="""
-        Spotify API를 사용한 음악 검색
+        Deezer API를 사용한 음악 검색
 
         **검색 문법:**
         - `아이유` - 일반 검색
@@ -73,7 +73,7 @@ class MusicSearchView(APIView):
         - 프론트: # 입력 → 스페이스바 → 태그 입력 모드
 
         **동작:**
-        1. 일반 검색어가 있으면 Spotify API 호출 (커버 640px, ISRC, spotify_url 포함)
+        1. 일반 검색어가 있으면 Deezer API 호출 (앨범 커버, ISRC, 30초 프리뷰, deezer_url 포함)
         2. 태그가 있으면 DB에서 해당 태그를 가진 곡과 매칭
         """,
         parameters=[
@@ -124,7 +124,7 @@ class MusicSearchView(APIView):
             ),
         ],
         responses={
-            200: SpotifySearchResultSerializer(many=True),
+            200: DeezerSearchResultSerializer(many=True),
             400: {'description': 'Bad Request - q 파라미터 필요'},
         },
         tags=['검색']
@@ -146,49 +146,49 @@ class MusicSearchView(APIView):
 
         results = []
 
-        # 1. 일반 검색어가 있으면 Spotify API 호출
+        # 1. 일반 검색어가 있으면 Deezer API 호출
         if term:
-            tracks = SpotifyService.search_tracks(term, limit=10)
+            tracks = DeezerService.search_tracks(term, limit=10)
 
-            # DB에 이미 있는지 확인 (spotify_id 기준)
+            # DB에 이미 있는지 확인 (deezer_id 기준)
             # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
-            spotify_ids = [t['spotify_id'] for t in tracks if t.get('spotify_id')]
+            deezer_ids = [t['deezer_id'] for t in tracks if t.get('deezer_id')]
             existing_set = set(
                 Music.objects.filter(
-                    spotify_id__in=spotify_ids
-                ).values_list('spotify_id', flat=True)
+                    deezer_id__in=deezer_ids
+                ).values_list('deezer_id', flat=True)
             )
 
             for t in tracks:
                 results.append({
-                    'spotify_id': t['spotify_id'],
+                    'deezer_id': t['deezer_id'],
                     'music_name': t['music_name'],
                     'artist_name': t['artist_name'],
                     'album_name': t['album_name'],
-                    'album_image': t['album_image_640'],
-                    'audio_url': '',  # 상세/재생 시 ISRC로 채움
+                    'album_image': t['album_image'],
+                    'audio_url': t['preview_url'],
                     'isrc': t['isrc'],
-                    'spotify_url': t['spotify_url'],
-                    'in_db': t['spotify_id'] in existing_set,
+                    'deezer_url': t['deezer_url'],
+                    'in_db': t['deezer_id'] in existing_set,
                     'has_matching_tags': False,  # 기본값
                 })
 
         # 2. 태그가 있으면 필터링
         if tags:
-            # DB에서 태그를 가진 곡의 spotify_id 찾기
+            # DB에서 태그를 가진 곡의 deezer_id 찾기
             # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
             tag_objects = Tags.objects.filter(tag_key__in=tags)
 
             music_ids_with_tags = MusicTags.objects.filter(
                 tag__in=tag_objects
-            ).values_list('music__spotify_id', flat=True).distinct()
+            ).values_list('music__deezer_id', flat=True).distinct()
 
-            spotify_ids_with_tags = set(music_ids_with_tags)
+            deezer_ids_with_tags = set(music_ids_with_tags)
 
             if term:
-                # Spotify 결과 + 태그 필터링
+                # Deezer 결과 + 태그 필터링
                 for item in results:
-                    if item.get('spotify_id') in spotify_ids_with_tags:
+                    if item.get('deezer_id') in deezer_ids_with_tags:
                         item['has_matching_tags'] = True
 
                 # 태그 매칭된 것만 필터 (AND 로직)
@@ -198,21 +198,21 @@ class MusicSearchView(APIView):
                 # DB에서 해당 태그를 가진 음악 조회
                 # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
                 musics = Music.objects.filter(
-                    spotify_id__in=spotify_ids_with_tags
+                    deezer_id__in=deezer_ids_with_tags
                 ).select_related('artist', 'album')
 
-                # Music 객체를 Spotify 검색 결과 형식으로 변환
+                # Music 객체를 Deezer 검색 결과 형식으로 변환
                 results = []
                 for music in musics:
                     results.append({
-                        'spotify_id': music.spotify_id,
+                        'deezer_id': music.deezer_id,
                         'music_name': music.music_name,
                         'artist_name': music.artist.artist_name if music.artist else '',
                         'album_name': music.album.album_name if music.album else '',
                         'album_image': music.album.album_image if music.album else '',
                         'audio_url': music.audio_url or '',
                         'isrc': music.isrc or '',
-                        'spotify_url': f'https://open.spotify.com/track/{music.spotify_id}' if music.spotify_id else '',
+                        'deezer_url': f'https://www.deezer.com/track/{music.deezer_id}' if music.deezer_id else '',
                         'in_db': True,
                         'has_matching_tags': True,
                     })
@@ -224,10 +224,10 @@ class MusicSearchView(APIView):
         page = paginator.paginate_queryset(results, request)
 
         if page is not None:
-            serializer = SpotifySearchResultSerializer(page, many=True)
+            serializer = DeezerSearchResultSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
 
-        serializer = SpotifySearchResultSerializer(results, many=True)
+        serializer = DeezerSearchResultSerializer(results, many=True)
         return Response({
             'count': len(results),
             'results': serializer.data

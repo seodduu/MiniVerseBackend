@@ -7,11 +7,6 @@ from .common import (
     test_task,
 )
 
-# 메타데이터 수집 작업
-from .metadata import (
-    fetch_artist_image_task,
-)
-
 # AI 음악 생성 작업
 from .ai_music import (
     generate_music_task,
@@ -44,9 +39,9 @@ from .enrichment import (
     fetch_similar_tracks_task,
 )
 
-# Spotify 저장 작업
-from .spotify_save import (
-    save_spotify_track_to_db_task,
+# Deezer 저장 작업
+from .deezer_save import (
+    save_deezer_track_to_db_task,
 )
 
 # 30일 메타데이터 refresh 작업
@@ -57,8 +52,6 @@ from .refresh import (
 __all__ = [
     # 공통
     'test_task',
-    # 메타데이터
-    'fetch_artist_image_task',
     # AI 음악
     'generate_music_task',
     'upload_suno_audio_to_s3_task',
@@ -76,8 +69,8 @@ __all__ = [
     # GraphRAG 강화 수집
     'fetch_mood_tags_task',
     'fetch_similar_tracks_task',
-    # Spotify 저장
-    'save_spotify_track_to_db_task',
+    # Deezer 저장
+    'save_deezer_track_to_db_task',
     # 30일 메타데이터 refresh
     'refresh_stale_music_task',
 ]
