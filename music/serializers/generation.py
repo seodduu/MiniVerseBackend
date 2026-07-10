@@ -21,5 +21,5 @@ class GenerationJobSerializer(serializers.ModelSerializer):
         # 오디오 blob은 completed 단계에서만 존재가 보장되므로,
         # preparing_audio 단계에서 URL을 노출하면 404로 이어질 수 있다.
         if obj.music_id and obj.phase == GenerationJob.PHASE_COMPLETED:
-            return f"/api/v1/music/{obj.music_id}/audio/"
+            return f"/api/v1/{obj.music_id}/audio/"
         return None

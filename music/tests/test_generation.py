@@ -74,7 +74,7 @@ class GenerationJobSerializerTest(TestCase):
             phase=GenerationJob.PHASE_COMPLETED,
         )
         data = GenerationJobSerializer(job).data
-        self.assertEqual(data['audio_url'], f"/api/v1/music/{music.music_id}/audio/")
+        self.assertEqual(data['audio_url'], f"/api/v1/{music.music_id}/audio/")
 
 
 def make_authed_user(email):
@@ -95,7 +95,7 @@ class GenerateAsyncJobTest(TestCase):
     @patch('music.tasks.generate_music_task.delay')
     def test_creates_job_and_returns_job_id(self, mock_delay):
         mock_delay.return_value.id = 'celery-task-123'
-        res = self.client.post('/api/v1/music/generate-async/',
+        res = self.client.post('/api/v1/generate-async/',
                                {'prompt': '여름 밤 드라이브', 'make_instrumental': False},
                                format='json')
         self.assertEqual(res.status_code, 202)
@@ -112,14 +112,14 @@ class GenerateAsyncJobTest(TestCase):
         mock_delay.return_value.id = 'celery-task-abc'
         GenerationJob.objects.create(user=self.user, original_prompt='이미 진행중',
                                      phase=GenerationJob.PHASE_GENERATING)
-        res = self.client.post('/api/v1/music/generate-async/',
+        res = self.client.post('/api/v1/generate-async/',
                                {'prompt': '두번째', 'make_instrumental': False},
                                format='json')
         self.assertEqual(res.status_code, 409)
 
     def test_requires_authentication(self):
         anon = APIClient()
-        res = anon.post('/api/v1/music/generate-async/',
+        res = anon.post('/api/v1/generate-async/',
                         {'prompt': 'x', 'make_instrumental': False}, format='json')
         self.assertIn(res.status_code, (401, 403))
 
@@ -138,13 +138,13 @@ class AudioStreamTest(TestCase):
         self.client = APIClient()
 
     def test_full_get_returns_200_and_bytes(self):
-        res = self.client.get(f'/api/v1/music/{self.music.music_id}/audio/')
+        res = self.client.get(f'/api/v1/{self.music.music_id}/audio/')
         self.assertEqual(res.status_code, 200)
         self.assertEqual(b''.join(res.streaming_content), b'0123456789')
         self.assertEqual(res['Content-Type'], 'audio/mpeg')
 
     def test_range_get_returns_206_partial(self):
-        res = self.client.get(f'/api/v1/music/{self.music.music_id}/audio/',
+        res = self.client.get(f'/api/v1/{self.music.music_id}/audio/',
                               HTTP_RANGE='bytes=2-5')
         self.assertEqual(res.status_code, 206)
         self.assertEqual(b''.join(res.streaming_content), b'2345')
@@ -155,7 +155,7 @@ class AudioStreamTest(TestCase):
             user=self.user, music_name='없음', is_ai=True,
             created_at=timezone.now(), updated_at=timezone.now(), is_deleted=False,
         )
-        res = self.client.get(f'/api/v1/music/{m2.music_id}/audio/')
+        res = self.client.get(f'/api/v1/{m2.music_id}/audio/')
         self.assertEqual(res.status_code, 404)
 
 
@@ -194,7 +194,7 @@ class GenerationQueryTest(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_active_returns_null_when_none(self):
-        res = self.client.get('/api/v1/music/generation/active/')
+        res = self.client.get('/api/v1/generation/active/')
         self.assertEqual(res.status_code, 200)
         self.assertIsNone(res.data)
 
@@ -204,17 +204,17 @@ class GenerationQueryTest(TestCase):
         # 다른 유저의 활성 job은 섞이면 안 됨
         GenerationJob.objects.create(user=self.other, original_prompt='x',
                                      phase=GenerationJob.PHASE_GENERATING)
-        res = self.client.get('/api/v1/music/generation/active/')
+        res = self.client.get('/api/v1/generation/active/')
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data['job_id'], job.job_id)
 
     def test_detail_forbids_other_users_job(self):
         others = GenerationJob.objects.create(user=self.other, original_prompt='x',
                                               phase=GenerationJob.PHASE_GENERATING)
-        res = self.client.get(f'/api/v1/music/generation/{others.job_id}/')
+        res = self.client.get(f'/api/v1/generation/{others.job_id}/')
         self.assertEqual(res.status_code, 404)
 
     def test_active_requires_auth(self):
         anon = APIClient()
-        res = anon.get('/api/v1/music/generation/active/')
+        res = anon.get('/api/v1/generation/active/')
         self.assertIn(res.status_code, (401, 403))
