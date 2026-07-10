@@ -1,6 +1,5 @@
-"""
-/canvas GraphRAG 응답 Serializers.
-"""
+"""Canvas GraphRAG response serializers."""
+
 from rest_framework import serializers
 
 
@@ -23,10 +22,17 @@ class CanvasGraphRagMatchedTagSerializer(serializers.Serializer):
 
 
 class CanvasGraphRagExplanationSerializer(serializers.Serializer):
-    type = serializers.CharField(allow_blank=True)
+    type = serializers.CharField()
     path = serializers.ListField(child=serializers.CharField())
     weight = serializers.FloatField()
-    reason = serializers.CharField(allow_blank=True)
+    reason = serializers.CharField()
+
+
+class CanvasGraphRagScoreBreakdownSerializer(serializers.Serializer):
+    direct_tag = serializers.FloatField()
+    similar = serializers.FloatField()
+    genre = serializers.FloatField()
+    mood = serializers.FloatField()
 
 
 class CanvasGraphRagItemSerializer(serializers.Serializer):
@@ -42,15 +48,28 @@ class CanvasGraphRagItemSerializer(serializers.Serializer):
     visual_weight = serializers.FloatField()
     cluster = serializers.CharField(allow_null=True, allow_blank=True)
     matched_tags = CanvasGraphRagMatchedTagSerializer(many=True)
+    score_breakdown = CanvasGraphRagScoreBreakdownSerializer()
+    source_types = serializers.ListField(child=serializers.CharField())
     explanations = CanvasGraphRagExplanationSerializer(many=True)
+
+
+class CanvasGraphRagSignalCoverageSerializer(serializers.Serializer):
+    direct_tag = serializers.IntegerField()
+    similar = serializers.IntegerField()
+    artist_genre = serializers.IntegerField()
+    mood = serializers.IntegerField()
 
 
 class CanvasGraphRagMetaSerializer(serializers.Serializer):
     returned = serializers.IntegerField()
-    data_state = serializers.CharField(allow_blank=True)
+    data_state = serializers.CharField()
     message = serializers.CharField(required=False, allow_blank=True)
     total_candidates = serializers.IntegerField(required=False)
-    graph_version = serializers.CharField(required=False, allow_blank=True)
+    graph_version = serializers.CharField(required=False)
+    available_signals = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    signal_coverage = CanvasGraphRagSignalCoverageSerializer(required=False)
 
 
 class CanvasGraphRagResponseSerializer(serializers.Serializer):
