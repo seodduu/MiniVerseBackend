@@ -15,6 +15,13 @@ SIMILAR_BODY = {"similartracks": {"track": [
     {"name": "Spicy", "match": "0.87", "artist": {"name": "aespa"}},
 ]}}
 
+ARTIST_TAGS_BODY = {"toptags": {"tag": [
+    {"name": "chill", "count": 80},
+    {"name": "kpop", "count": 60},           # 장르 → 화이트리스트 아님
+    {"name": "melancholy", "count": 20},
+    {"name": "seen live", "count": 3},        # 잡음
+]}}
+
 
 @override_settings(LASTFM_API_KEY='dummy_key')
 @responses.activate
@@ -35,3 +42,14 @@ def test_get_track_similar_parses_match():
     out = LastfmService.get_track_similar("NewJeans", "Super Shy")
     assert ("IVE", "I AM", 1.0) in out
     assert ("aespa", "Spicy", 0.87) in out
+
+
+@override_settings(LASTFM_API_KEY='dummy_key')
+@responses.activate
+def test_get_artist_top_tags_filters_whitelist():
+    responses.add(responses.GET, "https://ws.audioscrobbler.com/2.0/",
+                  json=ARTIST_TAGS_BODY, status=200)
+    out = LastfmService.get_artist_top_tags("Adele")
+    keys = {k for k, _ in out}
+    assert keys == {"chill", "melancholy"}
+    assert ("chill", 80) in out

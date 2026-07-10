@@ -18,6 +18,8 @@ def fetch_mood_tags_task(self, music_id: int, artist_name: str, track_name: str)
         return None
     try:
         tags = LastfmService.get_track_top_tags(artist_name, track_name)  # [(key,count)]
+        if not tags:
+            tags = LastfmService.get_artist_top_tags(artist_name)  # 트랙 태그 없으면 아티스트 태그로 폴백
         scored = []
         for key, count in tags:
             score = max(min(count / 100.0, 1.0), 0.0)

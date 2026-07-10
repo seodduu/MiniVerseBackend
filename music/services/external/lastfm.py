@@ -7,6 +7,8 @@ from typing import List, Tuple
 import requests
 from django.conf import settings
 
+from ..internal.mood_lexicon import MOOD_COORDS
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,22 +16,19 @@ class LastfmService:
     API_URL = "https://ws.audioscrobbler.com/2.0/"
     TIMEOUT = 5
 
-    MOOD_WHITELIST = {
-        "happy", "upbeat", "positive", "uplifting", "feel good", "energetic",
-        "chill", "mellow", "melancholic", "sad", "romantic", "dreamy", "dark",
-        "calm", "party",
-    }
+    MOOD_WHITELIST = set(MOOD_COORDS)
 
     @classmethod
-    def _get(cls, method: str, artist: str, track: str) -> dict:
+    def _get(cls, method: str, params: dict) -> dict:
         api_key = settings.LASTFM_API_KEY
         if not api_key:
             logger.error("[Last.fm] API_KEY 미설정")
             return {}
         try:
             r = requests.get(cls.API_URL, params={
-                "method": method, "artist": artist, "track": track,
+                "method": method,
                 "api_key": api_key, "format": "json", "autocorrect": 1,
+                **params,
             }, timeout=cls.TIMEOUT)
             r.raise_for_status()
             return r.json()
@@ -38,8 +37,15 @@ class LastfmService:
             return {}
 
     @classmethod
-    def get_track_top_tags(cls, artist: str, track: str) -> List[Tuple[str, int]]:
-        data = cls._get("track.getTopTags", artist, track)
+    def _get_track(cls, method: str, artist: str, track: str) -> dict:
+        return cls._get(method, {"artist": artist, "track": track})
+
+    @classmethod
+    def _get_artist(cls, method: str, artist: str) -> dict:
+        return cls._get(method, {"artist": artist})
+
+    @classmethod
+    def _parse_mood_tags(cls, data: dict) -> List[Tuple[str, int]]:
         tags = (data.get("toptags", {}) or {}).get("tag", []) or []
         out = []
         for t in tags:
@@ -52,8 +58,18 @@ class LastfmService:
         return out
 
     @classmethod
+    def get_track_top_tags(cls, artist: str, track: str) -> List[Tuple[str, int]]:
+        data = cls._get_track("track.getTopTags", artist, track)
+        return cls._parse_mood_tags(data)
+
+    @classmethod
+    def get_artist_top_tags(cls, artist: str) -> List[Tuple[str, int]]:
+        data = cls._get_artist("artist.getTopTags", artist)
+        return cls._parse_mood_tags(data)
+
+    @classmethod
     def get_track_similar(cls, artist: str, track: str) -> List[Tuple[str, str, float]]:
-        data = cls._get("track.getSimilar", artist, track)
+        data = cls._get_track("track.getSimilar", artist, track)
         tracks = (data.get("similartracks", {}) or {}).get("track", []) or []
         out = []
         for t in tracks:

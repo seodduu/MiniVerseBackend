@@ -29,6 +29,22 @@ def test_mood_tags_no_tags_leaves_coords_null(mock_tags):
 
 
 @pytest.mark.django_db
+@patch("music.tasks.enrichment.LastfmService.get_artist_top_tags",
+       return_value=[("chill", 80)])
+@patch("music.tasks.enrichment.LastfmService.get_track_top_tags", return_value=[])
+def test_mood_tags_falls_back_to_artist_tags(mock_track_tags, mock_artist_tags):
+    from music.tasks.enrichment import fetch_mood_tags_task
+    from music.models import Music, MusicTags
+    m = Music.objects.create(music_name="Obscure Track", is_deleted=False)
+    fetch_mood_tags_task(m.music_id, "SomeArtist", "Obscure Track")
+    mock_artist_tags.assert_called_once_with("SomeArtist")
+    edges = {mt.tag.tag_key: mt.score for mt in MusicTags.objects.filter(music=m)}
+    assert edges == {"chill": 0.8}
+    m.refresh_from_db()
+    assert m.valence is not None and m.arousal is not None
+
+
+@pytest.mark.django_db
 @patch("music.tasks.enrichment.LastfmService.get_track_similar",
        return_value=[("IVE", "I AM", 1.0), ("aespa", "Spicy", 0.87)])
 def test_similar_only_links_existing_tracks(mock_sim):
