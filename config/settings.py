@@ -504,12 +504,6 @@ OPENSEARCH_USE_SSL = os.getenv('OPENSEARCH_USE_SSL', 'True') == 'True'
 OPENSEARCH_VERIFY_CERTS = os.getenv('OPENSEARCH_VERIFY_CERTS', 'True') == 'True'
 OPENSEARCH_INDEX_PREFIX = os.getenv('OPENSEARCH_INDEX_PREFIX', 'music')
 
-# ==============================================
-# Spotify Web API (Client Credentials)
-# ==============================================
-SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID', '')
-SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET', '')
-
 # Last.fm API
 LASTFM_API_KEY = os.getenv('LASTFM_API_KEY', '')
 
