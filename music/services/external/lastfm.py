@@ -68,6 +68,20 @@ class LastfmService:
         return cls._parse_mood_tags(data)
 
     @classmethod
+    def get_tag_top_tracks(cls, tag: str, limit: int = 50) -> List[Tuple[str, str]]:
+        """무드 태그의 상위 트랙(tag.getTopTracks). 확립되고 태그가 풍부한 트랙 후보를 얻기 위한
+        시드 소스 — 신곡/차트곡은 Last.fm 태그가 희박해 GraphRAG 클러스터링에 적합하지 않다."""
+        data = cls._get("tag.getTopTracks", {"tag": tag, "limit": limit})
+        tracks = (data.get("tracks", {}) or {}).get("track", []) or []
+        out = []
+        for t in tracks:
+            name = t.get("name", "") or ""
+            a = (t.get("artist", {}) or {}).get("name", "") or ""
+            if name and a:
+                out.append((a, name))
+        return out
+
+    @classmethod
     def get_track_similar(cls, artist: str, track: str) -> List[Tuple[str, str, float]]:
         data = cls._get_track("track.getSimilar", artist, track)
         tracks = (data.get("similartracks", {}) or {}).get("track", []) or []
