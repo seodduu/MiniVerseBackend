@@ -193,6 +193,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'music.tasks.cleanup_old_realtime_charts',
         'schedule': crontab(hour=3, minute=0),  # 매일 03:00
     },
+
+    # 메타데이터 refresh: 30일마다 (무드 태그·유사곡 재수집, Spotify/Last.fm 신선도 조항 대응)
+    'refresh-stale-music': {
+        'task': 'music.tasks.refresh_stale_music',
+        'schedule': 60 * 60 * 24 * 30,  # 30일
+    },
 }
 
 # ==============================================

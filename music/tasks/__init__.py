@@ -49,6 +49,11 @@ from .spotify_save import (
     save_spotify_track_to_db_task,
 )
 
+# 30일 메타데이터 refresh 작업
+from .refresh import (
+    refresh_stale_music_task,
+)
+
 __all__ = [
     # 공통
     'test_task',
@@ -73,4 +78,6 @@ __all__ = [
     'fetch_similar_tracks_task',
     # Spotify 저장
     'save_spotify_track_to_db_task',
+    # 30일 메타데이터 refresh
+    'refresh_stale_music_task',
 ]
