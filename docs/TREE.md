@@ -1,6 +1,6 @@
 # 📁 프로젝트 파일 구조
 
-> 마지막 업데이트: 2026-01-17 (아티스트/앨범 이미지 S3 업로드 및 리사이징 기능 완료)
+> 마지막 업데이트: 2026-07-10 (비공식 API 제거, Spotify+iTunes+Last.fm 공식 음악 데이터 파이프라인 반영)
 ```
 Backend/
 ├── 📄 manage.py              # Django 관리 명령어 진입점
@@ -44,16 +44,20 @@ Backend/
 │   │
 │   ├── 📂 services/         # 외부 API 서비스
 │   │   ├── __init__.py      # 모든 Service export
-│   │   ├── itunes.py        # iTunes API 통합
-│   │   ├── deezer.py        # Deezer API 통합 (아티스트 이미지)
-│   │   ├── wikidata.py      # Wikidata API 통합 (아티스트 이미지)
-│   │   ├── lrclib.py        # LRCLIB API 통합 (가사)
-│   │   ├── lyrics_ovh.py    # Lyrics.ovh API 통합 (가사)
-│   │   └── user_statistics.py  # 사용자 통계 서비스
-│   │
-│   ├── 📂 utils/            # 유틸리티 모듈
-│   │   ├── __init__.py      # 유틸리티 export
-│   │   └── s3_upload.py      # S3 업로드 유틸리티 (이미지 업로드 및 리사이징)
+│   │   ├── itunes.py        # iTunes API 통합 (레거시 진입점, external/itunes.py로 위임)
+│   │   ├── opensearch.py    # OpenSearch 클라이언트
+│   │   ├── recommend_client.py  # 추천 서비스 클라이언트
+│   │   ├── user_statistics.py  # 사용자 통계 서비스
+│   │   ├── 📂 external/     # 공식 외부 API 통합
+│   │   │   ├── spotify.py   # Spotify Web API (메타데이터·커버·아티스트 이미지·장르·ISRC)
+│   │   │   ├── itunes.py    # iTunes Search API (30초 미리듣기, ISRC 미지원이라 검색 매칭)
+│   │   │   └── lastfm.py    # Last.fm API (무드 태그, 곡-곡 유사도)
+│   │   └── 📂 internal/     # 내부 도메인 서비스
+│   │       ├── ai_music_service.py   # AI 음악 생성 도메인 로직
+│   │       ├── mood_lexicon.py       # 무드 어휘 사전 (valence/arousal 역산)
+│   │       ├── music_tag_service.py  # 음악 태그 매핑 서비스
+│   │       ├── station_data.py       # 스테이션(플레이리스트) 데이터
+│   │       └── user_statistics.py    # 사용자 통계 도메인 로직
 │   │
 │   ├── 📂 music_generate/   # AI 음악 생성 모듈
 │   │   ├── __init__.py
@@ -69,19 +73,28 @@ Backend/
 │   │       └── monitor.html          # 음악 모니터링 페이지
 │   │
 │   ├── parsers.py           # 파서 re-export (하위 호환성)
-│   ├── tasks.py             # Celery 비동기 작업 (음악 생성, 이미지 수집, 가사 수집)
 │   ├── services.py          # 레거시 서비스 (하위 호환성)
 │   ├── serializers.py       # 레거시 시리얼라이저 (하위 호환성)
 │   │
+│   ├── 📂 tasks/            # Celery 비동기 작업
+│   │   ├── charts.py        # 실시간/일일/AI 차트 갱신
+│   │   ├── cleanup.py       # 재생기록/실시간차트 정리
+│   │   ├── ai_music.py      # AI 음악 생성, Suno 웹훅 처리
+│   │   ├── common.py        # 테스트용 태스크
+│   │   ├── image_resize.py  # 이미지 리사이징
+│   │   ├── metadata.py      # 아티스트 이미지 수집 (Spotify)
+│   │   ├── enrichment.py    # 무드 태그·유사 곡 수집 (Last.fm)
+│   │   ├── spotify_save.py  # Spotify 트랙 저장 (spotify_id 중복판정, ISRC 미리듣기, 후속 수집 트리거)
+│   │   └── refresh.py       # 메타데이터 30일 주기 재수집 (refresh_stale_music)
+│   │
 │   ├── 📂 migrations/       # DB 마이그레이션
-│   │   ├── 0001_add_artist_image_columns.py  # 아티스트 이미지 컬럼 추가
-│   │   ├── 0002_rename_artist_circle_columns.py  # 아티스트 원형 이미지 컬럼명 변경
-│   │   └── 0003_add_album_image_square.py     # 앨범 사각형 이미지 컬럼 추가
+│   │   ├── 0001_initial.py
+│   │   └── 0002_remove_music_lyrics_albums_release_date_and_more.py  # lyrics 컬럼 제거, spotify_id/isrc/release_date 등 추가
 │   │
 │   └── 📂 management/       # Django 관리 명령어
 │       └── commands/
-│           ├── migrate_images_to_s3.py        # 기존 이미지 S3 마이그레이션
-│           └── update_resized_image_urls.py    # 리사이징된 이미지 URL 업데이트
+│           ├── graph_readiness.py    # GraphRAG 준비 상태 리포트 (music/tag/엣지 카운트, ready 플래그)
+│           └── opensearch_setup.py   # OpenSearch 인덱스 생성/삭제/동기화
 │
 ├── 🐳 Dockerfile             # Docker 이미지 빌드 설정
 ├── 🐳 docker-compose.yml     # 멀티 컨테이너 오케스트레이션
@@ -130,7 +143,7 @@ Backend/
 - [x] **Phase 3-2-1**: AI 음악 생성 (Suno API) 및 비동기 작업 (Celery)
 - [x] **Phase 4**: 차트 API 구현 (실시간/일일/AI 차트)
 - [x] **모니터링 시스템**: Prometheus, Grafana, Loki 통합 모니터링 구축
-- [ ] **Phase 3-2-2**: 외부 API (LRCLIB) 통합
+- [x] **음악 데이터 파이프라인 재구축**: 비공식 API(ytmusicapi/Deezer/Wikidata/LRCLIB/Lyrics.ovh) 제거 → Spotify+iTunes+Last.fm 공식 API 전환, 무드 태그/유사 곡 엣지 수집, 30일 주기 재수집
 - [ ] **Phase 5**: 클라우드 이관 (AWS RDS, MQ, EC2)
 
 ## 📝 주요 변경사항
@@ -228,7 +241,7 @@ Backend/
   - `/api/v1/test/db` - DB 쿼리 테스트
 - ✅ 모든 대시보드 쿼리에 "No data" 방지 처리 (`or vector(0)`)
 
-### 2026-01-16 - 아티스트/앨범 이미지 S3 업로드 및 리사이징
+### 2026-01-16 - 아티스트/앨범 이미지 S3 업로드 및 리사이징 (⚠️ 2026-07 파이프라인 개편으로 대체됨, 아래 참고)
 - ✅ 아티스트 이미지 자동 수집 (Wikidata → Deezer fallback)
 - ✅ 앨범 이미지 자동 수집 (iTunes 이미지 URL)
 - ✅ S3 업로드 유틸리티 구현 (`music/utils/s3_upload.py`)
@@ -242,3 +255,15 @@ Backend/
   - `migrate_images_to_s3` - 기존 이미지 S3 마이그레이션
   - `update_resized_image_urls` - 리사이징된 이미지 URL 업데이트
 - ✅ 전체 흐름 문서화 (`FLOW_ARTIST_SEARCH_AND_TRACK_CLICK.md`)
+
+### 2026-07-09~10 - 음악 데이터 파이프라인 재구축 (공식 API 전환)
+- ✅ 비공식 API(ytmusicapi, Deezer, Wikidata, LRCLIB, Lyrics.ovh) 전면 제거
+- ✅ **Spotify Web API** 통합: 메타데이터·커버 아트·아티스트 이미지·장르·ISRC 수집 (`music/services/external/spotify.py`)
+- ✅ **iTunes Search API** 기반 30초 미리듣기 조회로 전환 (ISRC lookup 미지원 확인 후 검색 매칭으로 변경, `search_preview`)
+- ✅ **Last.fm API** 통합: 무드 태그 수집 → 무드 어휘 사전으로 valence/arousal 역산, 곡-곡 유사 엣지(`music_similar` 테이블) 수집 (`music/services/external/lastfm.py`)
+- ✅ `Music` 모델: `lyrics` 컬럼 제거, `spotify_id`(unique)·`isrc` 컬럼 추가 (`Albums.release_date` 등도 함께 정리)
+- ✅ 검색/상세/재생 뷰를 `spotify_id` 기반으로 전환
+- ✅ 가사(lyrics) 관련 기능·필드 전면 제거 (시리얼라이저, 뷰, 태스크)
+- ✅ 메타데이터 30일 주기 재수집 Celery Beat 태스크 추가 (`refresh_stale_music`, Spotify/Last.fm 데이터 신선도 조항 대응)
+- ✅ `graph_readiness` 관리 명령어 추가 (GraphRAG 준비 상태: music/tag/엣지 카운트, `ready` 플래그)
+- ✅ S3 이미지 업로드 시그널 및 관련 관리 명령어(`migrate_images_to_s3`, `update_resized_image_urls`) 제거

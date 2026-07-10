@@ -1,111 +1,71 @@
 """
-Deezer API 통합 서비스
-아티스트 이미지를 Deezer에서 가져옵니다.
-Wikidata API의 보조(fallback) API로 사용됩니다.
+Deezer Public API 통합 서비스 (인증 불필요).
+검색·메타데이터·앨범 커버·아티스트 이미지·ISRC·프리뷰 수집.
 """
-import requests
-import re
 import logging
-from typing import Optional
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from typing import Dict, List, Optional
+
+import requests
 
 logger = logging.getLogger(__name__)
 
 
 class DeezerService:
-    """Deezer API를 통한 아티스트 이미지 조회 서비스 (Wikidata fallback)"""
-    
-    SEARCH_URL = "https://api.deezer.com/search/artist"
-    TIMEOUT = 10
-    
-    _session = None
-    
+    API_BASE = "https://api.deezer.com"
+    TIMEOUT = 5
+
     @classmethod
-    def _get_session(cls) -> requests.Session:
-        """재사용 가능한 HTTP 세션 생성"""
-        if cls._session is None:
-            session = requests.Session()
-            headers = {
-                "User-Agent": "MusicBackendService/1.0",
-                "Accept": "application/json"
-            }
-            session.headers.update(headers)
-            
-            retries = Retry(
-                total=3,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-                allowed_methods=frozenset(["GET"])
-            )
-            adapter = HTTPAdapter(max_retries=retries)
-            session.mount("https://", adapter)
-            session.mount("http://", adapter)
-            cls._session = session
-        
-        return cls._session
-    
+    def _parse_track(cls, t: Dict) -> Dict:
+        artist = t.get("artist", {}) or {}
+        album = t.get("album", {}) or {}
+        return {
+            "deezer_id": str(t.get("id", "")),
+            "music_name": t.get("title", ""),
+            "artist_name": artist.get("name", ""),
+            "artist_deezer_id": str(artist.get("id", "")),
+            "artist_image": artist.get("picture_xl", "") or "",
+            "album_name": album.get("title", ""),
+            "album_deezer_id": str(album.get("id", "")),
+            "album_image": album.get("cover_xl", "") or "",
+            "isrc": t.get("isrc", "") or "",
+            "duration": t.get("duration"),
+            "preview_url": t.get("preview", "") or "",
+            "release_date": t.get("release_date", "") or "",  # /track/{id}에서만 제공
+            "deezer_url": t.get("link", "") or "",
+        }
+
     @classmethod
-    def _clean_text(cls, text: str) -> str:
-        """검색 정확도를 위해 괄호 안 내용 제거"""
-        if not text:
-            return ""
-        text = re.sub(r"\([^)]*\)", "", text)
-        text = re.sub(r"\[[^]]*\]", "", text)
-        return text.strip()
-    
-    @classmethod
-    def fetch_artist_image(cls, artist_name: str) -> Optional[str]:
-        """
-        아티스트 이름으로 이미지 URL 조회 (Deezer)
-        
-        Args:
-            artist_name: 아티스트 이름
-            
-        Returns:
-            이미지 URL 또는 None
-        """
-        logger.info(f"Deezer 아티스트 이미지 조회 시작: {artist_name}")
-        
-        clean_name = cls._clean_text(artist_name)
-        if not clean_name:
-            return None
-        
-        session = cls._get_session()
-        
+    def search_tracks(cls, term: str, limit: int = 10) -> List[Dict]:
         try:
-            params = {"q": clean_name}
-            response = session.get(cls.SEARCH_URL, params=params, timeout=cls.TIMEOUT)
-            
-            if response.status_code != 200:
-                logger.warning(f"Deezer API 오류: {response.status_code}")
-                return None
-            
-            data = response.json()
-            artists = data.get("data", [])
-            
-            if not artists:
-                logger.info(f"Deezer에서 아티스트를 찾지 못함: {artist_name}")
-                return None
-            
-            # 첫 번째 결과에서 이미지 추출 (picture_xl > picture_big > picture_medium)
-            first_artist = artists[0]
-            
-            # xl (500x500), big (250x250), medium (56x56) 순으로 시도
-            image_url = (
-                first_artist.get("picture_xl") or
-                first_artist.get("picture_big") or
-                first_artist.get("picture_medium") or
-                first_artist.get("picture")
+            r = requests.get(
+                f"{cls.API_BASE}/search",
+                params={"q": term, "limit": limit},
+                timeout=cls.TIMEOUT,
             )
-            
-            if image_url:
-                logger.info(f"Deezer 이미지 조회 성공: {artist_name} -> {image_url[:50]}...")
-                return image_url
-            
-            logger.info(f"Deezer에서 이미지 없음: {artist_name}")
-            return None
-            
+            r.raise_for_status()
+            data = r.json()
+            if "error" in data:
+                logger.error(f"[Deezer] 검색 실패: {data['error']}")
+                return []
+            items = data.get("data", []) or []
+            return [cls._parse_track(t) for t in items]
         except requests.exceptions.RequestException as e:
-            logger.error(f"Deezer API 요청 실패: {e}")
+            logger.error(f"[Deezer] 검색 실패: {e}")
+            return []
+
+    @classmethod
+    def get_track(cls, deezer_id: str) -> Optional[Dict]:
+        try:
+            r = requests.get(
+                f"{cls.API_BASE}/track/{deezer_id}",
+                timeout=cls.TIMEOUT,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if "error" in data:
+                logger.error(f"[Deezer] 트랙 조회 실패: {data['error']}")
+                return None
+            return cls._parse_track(data)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Deezer] 트랙 조회 실패: {e}")
             return None

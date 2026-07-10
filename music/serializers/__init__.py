@@ -32,6 +32,7 @@ from .music import (
 # 검색 관련 Serializers
 from .search import (
     iTunesSearchResultSerializer,
+    DeezerSearchResultSerializer,
     AiMusicSearchResultSerializer,
     TagMusicSearchSerializer,
 )
@@ -107,6 +108,7 @@ __all__ = [
     'MusicTagGraphSerializer',
     # search
     'iTunesSearchResultSerializer',
+    'DeezerSearchResultSerializer',
     'AiMusicSearchResultSerializer',
     'TagMusicSearchSerializer',
     # auth

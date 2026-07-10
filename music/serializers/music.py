@@ -12,16 +12,23 @@ class MusicDetailSerializer(serializers.ModelSerializer):
     album = AlbumSerializer(read_only=True)
     tags = serializers.SerializerMethodField()
     ai_info = serializers.SerializerMethodField()
-    
+    deezer_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Music
         fields = [
-            'music_id', 'music_name', 'artist', 'album', 
-            'genre', 'duration', 'is_ai', 'audio_url', 
-            'lyrics', 'valence', 'arousal', 'itunes_id',
+            'music_id', 'music_name', 'artist', 'album',
+            'genre', 'duration', 'is_ai', 'audio_url',
+            'deezer_id', 'deezer_url', 'valence', 'arousal', 'itunes_id',
             'tags', 'ai_info', 'created_at', 'updated_at'
         ]
-    
+
+    def get_deezer_url(self, obj):
+        """Deezer 트랙 URL (deezer_id로부터 파생)"""
+        if obj.deezer_id:
+            return f"https://www.deezer.com/track/{obj.deezer_id}"
+        return None
+
     def get_tags(self, obj):
         """음악에 연결된 태그 목록 조회"""
         music_tags = MusicTags.objects.filter(
@@ -60,9 +67,9 @@ class MusicPlaySerializer(serializers.ModelSerializer):
     class Meta:
         model = Music
         fields = [
-            'music_id', 'music_name', 'artist_name', 'album_name', 
-            'album_image', 'audio_url', 'duration', 'genre', 
-            'is_ai', 'lyrics', 'itunes_id'
+            'music_id', 'music_name', 'artist_name', 'album_name',
+            'album_image', 'audio_url', 'duration', 'genre',
+            'is_ai', 'deezer_id', 'itunes_id'
         ]
 
 

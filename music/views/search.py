@@ -11,19 +11,18 @@ from django.utils import timezone
 from django.db.models import Q, Prefetch
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
-from ..models import Music, MusicTags, Tags, Artists, Albums, AiInfo
-from ..serializers import iTunesSearchResultSerializer, AiMusicSearchResultSerializer, TagMusicSearchSerializer
-from ..services import iTunesService
-from ..tasks import fetch_artist_image_task, fetch_album_image_task
+from ..models import Music, MusicTags, Tags, AiInfo
+from ..serializers import DeezerSearchResultSerializer, AiMusicSearchResultSerializer, TagMusicSearchSerializer
+from ..services.external.deezer import DeezerService
 from .common import MusicPagination
 
 
 class MusicSearchView(APIView):
     """
-    iTunes API 기반 음악 검색
+    Deezer API 기반 음악 검색
 
     - 검색어 파싱: 일반 검색어 + 태그 (#으로 구분)
-    - iTunes API 우선 호출
+    - Deezer API 우선 호출 (앨범 커버, ISRC, 30초 프리뷰, deezer_url 포함)
     - 태그 필터링 지원
 
     GET /api/v1/search?q={검색어}&page={num}&page_size={num}
@@ -59,22 +58,22 @@ class MusicSearchView(APIView):
         return {"term": term, "tags": tags}
     
     @extend_schema(
-        summary="iTunes 음악 검색",
+        summary="Deezer 음악 검색",
         description="""
-        iTunes API를 사용한 음악 검색
-        
+        Deezer API를 사용한 음악 검색
+
         **검색 문법:**
         - `아이유` - 일반 검색
         - `# christmas` - 태그만 검색 (# 뒤 공백 필수)
         - `아이유 # christmas` - 검색어 + 태그 (AND 조건)
         - `C#` - 일반 검색 (공백 없으면 태그 아님)
-        
+
         **태그 규칙:**
         - '# ' (해시+공백) 패턴만 태그로 인식
         - 프론트: # 입력 → 스페이스바 → 태그 입력 모드
-        
+
         **동작:**
-        1. 일반 검색어가 있으면 iTunes API 호출
+        1. 일반 검색어가 있으면 Deezer API 호출 (앨범 커버, ISRC, 30초 프리뷰, deezer_url 포함)
         2. 태그가 있으면 DB에서 해당 태그를 가진 곡과 매칭
         """,
         parameters=[
@@ -125,163 +124,73 @@ class MusicSearchView(APIView):
             ),
         ],
         responses={
-            200: iTunesSearchResultSerializer(many=True),
+            200: DeezerSearchResultSerializer(many=True),
             400: {'description': 'Bad Request - q 파라미터 필요'},
-            503: {'description': 'Service Unavailable - iTunes API 오류'}
         },
         tags=['검색']
     )
     def get(self, request):
         """음악 검색 처리"""
         query = request.query_params.get('q', '')
-        
+
         if not query:
             return Response(
                 {'error': 'q 파라미터가 필요합니다.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         # 검색어 파싱
         parsed = self.parse_search_query(query)
         term = parsed['term']
         tags = parsed['tags']
-        
+
         results = []
-        
-        # 1. 일반 검색어가 있으면 iTunes API 호출
+
+        # 1. 일반 검색어가 있으면 Deezer API 호출
         if term:
-            itunes_data = iTunesService.search(term, limit=50)
-            
-            if 'error' in itunes_data:
-                return Response(
-                    {'error': f'iTunes API 오류: {itunes_data["error"]}'},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE
-                )
-            
-            # iTunes 결과 파싱
-            parsed_results = iTunesService.parse_search_results(itunes_data.get('results', []))
-            
-            # DB에 이미 있는지 확인
+            tracks = DeezerService.search_tracks(term, limit=10)
+
+            # DB에 이미 있는지 확인 (deezer_id 기준)
             # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
-            itunes_ids = [r['itunes_id'] for r in parsed_results if r.get('itunes_id')]
-            existing_music = Music.objects.filter(
-                itunes_id__in=itunes_ids
-            ).values_list('itunes_id', flat=True)
-            
-            existing_set = set(existing_music)
-            
-            # 아티스트 이름으로 DB에서 아티스트 ID 조회 및 생성 (일괄 처리)
-            artist_names = list(set([r.get('artist_name') for r in parsed_results if r.get('artist_name')]))
-            artist_name_to_id = {}
-            if artist_names:
-                # DB에 있는 아티스트 조회
-                # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
-                existing_artists = Artists.objects.filter(
-                    artist_name__in=artist_names
-                ).values('artist_id', 'artist_name')
-                artist_name_to_id = {a['artist_name']: a['artist_id'] for a in existing_artists}
-                
-                # DB에 없는 아티스트 생성
-                for artist_name in artist_names:
-                    if artist_name not in artist_name_to_id:
-                        # TrackableMixin이 자동으로 created_at, is_deleted 설정
-                        artist, artist_created = Artists.objects.get_or_create(
-                            artist_name=artist_name,
-                            defaults={
-                                'artist_image': '',  # 비동기로 수집
-                            }
-                        )
-                        artist_name_to_id[artist_name] = artist.artist_id
-                        
-                        # 아티스트 이미지 비동기 수집 (새로 생성되었거나 이미지가 없는 경우)
-                        if artist_created or not artist.artist_image:
-                            try:
-                                fetch_artist_image_task.delay(artist.artist_id, artist_name)
-                            except Exception as e:
-                                # 태스크 호출 실패해도 기본 저장은 완료되도록 함
-                                import logging
-                                logging.getLogger(__name__).warning(
-                                    f"아티스트 이미지 태스크 호출 실패: {e}"
-                                )
-            
-            # 앨범 이름과 아티스트 조합으로 DB에서 앨범 ID 조회 및 생성
-            # 앨범은 아티스트별로 처리해야 하므로 결과별로 처리
-            album_key_to_id = {}  # (album_name, artist_id) -> album_id
-            
-            for item in parsed_results:
-                item['in_db'] = item.get('itunes_id') in existing_set
-                item['has_matching_tags'] = False  # 기본값
-                
-                # 아티스트 ID 추가 (없으면 생성했으므로 항상 있음)
-                artist_name = item.get('artist_name')
-                item['artist_id'] = artist_name_to_id.get(artist_name) if artist_name else None
-                
-                # 앨범 ID 추가 (아티스트가 있어야 앨범 생성 가능)
-                album_name = item.get('album_name')
-                artist_id = item['artist_id']
-                
-                if album_name and artist_id:
-                    album_key = (album_name, artist_id)
-                    if album_key not in album_key_to_id:
-                        # 앨범 조회 또는 생성
-                        try:
-                            # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
-                            artist = Artists.objects.get(artist_id=artist_id)
-                            # TrackableMixin이 자동으로 created_at, is_deleted 설정
-                            album, album_created = Albums.objects.get_or_create(
-                                album_name=album_name,
-                                artist=artist,
-                                defaults={
-                                    'album_image': '',  # 비동기로 수집
-                                }
-                            )
-                            album_key_to_id[album_key] = album.album_id
-                            
-                            # 앨범 이미지 비동기 수집 (새로 생성되었거나 이미지가 없는 경우)
-                            album_image_url = item.get('album_image', '')
-                            if album_created or not album.album_image:
-                                try:
-                                    # artist_name도 전달하여 YouTube Music 검색 정확도 향상
-                                    artist_name = item.get('artist_name', '')
-                                    fetch_album_image_task.delay(
-                                        album.album_id, 
-                                        album_name, 
-                                        album_image_url,  # iTunes fallback용
-                                        artist_name  # YouTube Music 검색용
-                                    )
-                                except Exception as e:
-                                    # 태스크 호출 실패해도 기본 저장은 완료되도록 함
-                                    import logging
-                                    logging.getLogger(__name__).warning(
-                                        f"앨범 이미지 태스크 호출 실패: {e}"
-                                    )
-                        except Artists.DoesNotExist:
-                            album_key_to_id[album_key] = None
-                    
-                    item['album_id'] = album_key_to_id[album_key]
-                else:
-                    item['album_id'] = None
-            
-            results = parsed_results
-        
+            deezer_ids = [t['deezer_id'] for t in tracks if t.get('deezer_id')]
+            existing_set = set(
+                Music.objects.filter(
+                    deezer_id__in=deezer_ids
+                ).values_list('deezer_id', flat=True)
+            )
+
+            for t in tracks:
+                results.append({
+                    'deezer_id': t['deezer_id'],
+                    'music_name': t['music_name'],
+                    'artist_name': t['artist_name'],
+                    'album_name': t['album_name'],
+                    'album_image': t['album_image'],
+                    'audio_url': t['preview_url'],
+                    'isrc': t['isrc'],
+                    'deezer_url': t['deezer_url'],
+                    'in_db': t['deezer_id'] in existing_set,
+                    'has_matching_tags': False,  # 기본값
+                })
+
         # 2. 태그가 있으면 필터링
         if tags:
-            # DB에서 태그를 가진 곡의 itunes_id 찾기
+            # DB에서 태그를 가진 곡의 deezer_id 찾기
             # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
             tag_objects = Tags.objects.filter(tag_key__in=tags)
-            
+
             music_ids_with_tags = MusicTags.objects.filter(
                 tag__in=tag_objects
-            ).values_list('music__itunes_id', flat=True).distinct()
-            
-            itunes_ids_with_tags = set(music_ids_with_tags)
-            
+            ).values_list('music__deezer_id', flat=True).distinct()
+
+            deezer_ids_with_tags = set(music_ids_with_tags)
+
             if term:
-                # iTunes 결과 + 태그 필터링
+                # Deezer 결과 + 태그 필터링
                 for item in results:
-                    if item.get('itunes_id') in itunes_ids_with_tags:
+                    if item.get('deezer_id') in deezer_ids_with_tags:
                         item['has_matching_tags'] = True
-                
+
                 # 태그 매칭된 것만 필터 (AND 로직)
                 results = [r for r in results if r['has_matching_tags']]
             else:
@@ -289,39 +198,36 @@ class MusicSearchView(APIView):
                 # DB에서 해당 태그를 가진 음악 조회
                 # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
                 musics = Music.objects.filter(
-                    itunes_id__in=itunes_ids_with_tags
+                    deezer_id__in=deezer_ids_with_tags
                 ).select_related('artist', 'album')
-                
-                # Music 객체를 iTunes 검색 결과 형식으로 변환
+
+                # Music 객체를 Deezer 검색 결과 형식으로 변환
                 results = []
                 for music in musics:
                     results.append({
-                        'itunes_id': music.itunes_id,
+                        'deezer_id': music.deezer_id,
                         'music_name': music.music_name,
                         'artist_name': music.artist.artist_name if music.artist else '',
-                        'artist_id': music.artist.artist_id if music.artist else None,
                         'album_name': music.album.album_name if music.album else '',
-                        'album_id': music.album.album_id if music.album else None,
-                        'genre': music.genre or '',
-                        'duration': music.duration,
-                        'audio_url': music.audio_url,
                         'album_image': music.album.album_image if music.album else '',
+                        'audio_url': music.audio_url or '',
+                        'isrc': music.isrc or '',
+                        'deezer_url': f'https://www.deezer.com/track/{music.deezer_id}' if music.deezer_id else '',
                         'in_db': True,
                         'has_matching_tags': True,
                     })
-        
-        
+
         # 4. 페이지네이션
         paginator = self.pagination_class()
-        
+
         # 리스트를 페이지네이션하기 위해 임시로 변환
         page = paginator.paginate_queryset(results, request)
-        
+
         if page is not None:
-            serializer = iTunesSearchResultSerializer(page, many=True)
+            serializer = DeezerSearchResultSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
-        
-        serializer = iTunesSearchResultSerializer(results, many=True)
+
+        serializer = DeezerSearchResultSerializer(results, many=True)
         return Response({
             'count': len(results),
             'results': serializer.data

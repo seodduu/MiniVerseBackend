@@ -7,24 +7,12 @@ from .common import (
     test_task,
 )
 
-# 메타데이터 수집 작업
-from .metadata import (
-    fetch_artist_image_task,
-    fetch_album_image_task,
-    fetch_lyrics_task,
-)
-
 # AI 음악 생성 작업
 from .ai_music import (
     generate_music_task,
     upload_suno_audio_to_s3_task,
     fetch_timestamped_lyrics_task,
     process_suno_webhook_task,
-)
-
-# iTunes 통합 작업
-from .itunes import (
-    save_itunes_track_to_db_task,
 )
 
 # 차트 계산 작업
@@ -45,20 +33,30 @@ from .image_resize import (
     resize_image_task,
 )
 
+# GraphRAG 강화 수집 작업 (무드 태그 + 유사곡)
+from .enrichment import (
+    fetch_mood_tags_task,
+    fetch_similar_tracks_task,
+)
+
+# Deezer 저장 작업
+from .deezer_save import (
+    save_deezer_track_to_db_task,
+)
+
+# 30일 메타데이터 refresh 작업
+from .refresh import (
+    refresh_stale_music_task,
+)
+
 __all__ = [
     # 공통
     'test_task',
-    # 메타데이터
-    'fetch_artist_image_task',
-    'fetch_album_image_task',
-    'fetch_lyrics_task',
     # AI 음악
     'generate_music_task',
     'upload_suno_audio_to_s3_task',
     'fetch_timestamped_lyrics_task',
     'process_suno_webhook_task',
-    # iTunes
-    'save_itunes_track_to_db_task',
     # 차트
     'update_realtime_chart',
     'update_daily_chart',
@@ -68,4 +66,11 @@ __all__ = [
     'cleanup_old_realtime_charts',
     # 이미지 리사이징
     'resize_image_task',
+    # GraphRAG 강화 수집
+    'fetch_mood_tags_task',
+    'fetch_similar_tracks_task',
+    # Deezer 저장
+    'save_deezer_track_to_db_task',
+    # 30일 메타데이터 refresh
+    'refresh_stale_music_task',
 ]

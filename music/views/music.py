@@ -1,215 +1,117 @@
 """
-음악 상세 관련 Views - iTunes ID 기반 상세 조회, 음악 재생, 태그 조회
+음악 상세 관련 Views - Deezer ID 기반 상세 조회, 음악 재생, 태그 조회
 """
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
-from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
-from ..models import Music, Artists, Albums, MusicTags
+from ..models import Music, MusicTags
 from ..serializers import MusicDetailSerializer, MusicPlaySerializer, MusicTagGraphSerializer
 from ..serializers.base import TagSerializer
-from ..services import iTunesService
+from ..services.external.deezer import DeezerService
 from ..services.internal.music_tag_service import MusicTagService
-from ..tasks import fetch_artist_image_task, fetch_album_image_task, fetch_lyrics_task, save_itunes_track_to_db_task
+from ..tasks import save_deezer_track_to_db_task
 
 
 class MusicDetailView(APIView):
     """
-    iTunes ID 기반 음악 상세 조회
-    
+    Deezer ID 기반 음악 상세 조회
+
     - DB에 있으면: DB 데이터 반환 (태그, 좋아요 포함)
-    - DB에 없으면: iTunes Lookup API 호출 → DB에 저장 → 반환
-    
-    GET /api/v1/tracks/{itunes_id}
+    - DB에 없으면: Deezer API 조회 → 저장은 백그라운드 태스크로 비동기 처리 → 즉시 응답
+
+    GET /api/v1/tracks/{deezer_id}
     """
     permission_classes = [AllowAny]
-    
-    @transaction.atomic
-    def create_music_from_itunes(self, itunes_data):
-        """
-        iTunes 데이터로부터 Music 객체 생성
-        Artist, Album도 함께 생성/조회
-        
-        추가로 Celery 비동기 태스크를 호출하여:
-        - Wikidata에서 아티스트 이미지 조회
-        - LRCLIB에서 가사 조회
-        """
-        artist_name = itunes_data.get('artist_name', '')
-        artist = None
-        artist_created = False
-        
-        if artist_name:
-            # Artist 생성/조회 (이미지는 비동기로 수집하므로 빈 값으로 저장)
-            # TrackableMixin이 자동으로 created_at, is_deleted 설정
-            artist, artist_created = Artists.objects.get_or_create(
-                artist_name=artist_name,
-                defaults={
-                    'artist_image': '',  # Wikidata에서 비동기로 수집
-                }
-            )
-        
-        # Album 생성 또는 조회
-        album_name = itunes_data.get('album_name', '')
-        album = None
-        album_created = False
-        if album_name and artist:
-            # TrackableMixin이 자동으로 created_at, is_deleted 설정
-            album, album_created = Albums.objects.get_or_create(
-                album_name=album_name,
-                artist=artist,
-                defaults={
-                    'album_image': '',  # 비동기로 수집
-                }
-            )
-            
-            # 앨범 이미지 비동기 수집 (새로 생성되었거나 이미지가 없는 경우)
-            album_image_url = itunes_data.get('album_image', '')
-            if album_image_url and (album_created or not album.album_image):
-                try:
-                    # artist_name 전달하여 YouTube Music 검색 정확도 향상
-                    fetch_album_image_task.delay(
-                        album.album_id, 
-                        album_name, 
-                        album_image_url,  # iTunes fallback용
-                        artist_name  # YouTube Music 검색용
-                    )
-                except Exception as e:
-                    # 태스크 호출 실패해도 기본 저장은 완료되도록 함
-                    import logging
-                    logging.getLogger(__name__).warning(f"앨범 이미지 태스크 호출 실패: {e}")
-        
-        # Music 생성 (가사는 비동기로 수집하므로 빈 값으로 저장)
-        # TrackableMixin이 자동으로 created_at, is_deleted 설정
-        music = Music.objects.create(
-            itunes_id=itunes_data.get('itunes_id'),
-            music_name=itunes_data.get('music_name', ''),
-            artist=artist,
-            album=album,
-            genre=itunes_data.get('genre', ''),
-            duration=itunes_data.get('duration'),
-            audio_url=itunes_data.get('audio_url', ''),
-            lyrics=None,  # LRCLIB에서 비동기로 수집
-            is_ai=False,
-        )
-        
-        # 비동기 태스크 호출: 아티스트 이미지 수집 (새로 생성되었거나 이미지가 없는 경우)
-        if artist and (artist_created or not artist.artist_image):
-            try:
-                fetch_artist_image_task.delay(artist.artist_id, artist.artist_name)
-            except Exception as e:
-                # 태스크 호출 실패해도 기본 저장은 완료되도록 함
-                import logging
-                logging.getLogger(__name__).warning(f"아티스트 이미지 태스크 호출 실패: {e}")
-        
-        # 비동기 태스크 호출: 가사 수집
-        if artist_name and itunes_data.get('music_name'):
-            try:
-                fetch_lyrics_task.delay(
-                    music.music_id,
-                    artist_name,
-                    itunes_data.get('music_name', ''),
-                    itunes_data.get('duration')
-                )
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"가사 태스크 호출 실패: {e}")
-        
-        return music
-    
+
     @extend_schema(
-        summary="iTunes ID로 음악 상세 조회",
+        summary="Deezer ID로 음악 상세 조회",
         description="""
-        iTunes ID를 사용하여 음악 상세 정보 조회
-        
+        Deezer Track ID를 사용하여 음악 상세 정보 조회
+
         **동작 (성능 최적화):**
         - DB에 이미 있으면: DB 데이터 반환 (200 OK)
-        - DB에 없으면: iTunes Lookup API 호출 → 즉시 응답 (202 Accepted)
-          - DB 저장은 백그라운드로 비동기 처리 (50-200ms 절약)
-        
+        - DB에 없으면: Deezer API 조회 → 즉시 응답 (202 Accepted)
+          - DB 저장은 백그라운드로 비동기 처리 (save_deezer_track_to_db_task)
+
         **저장 내용 (백그라운드):**
-        - Artist, Album 자동 생성/조회
-        - Music 정보 저장
-        - 태그는 빈 상태로 저장 (추후 수동 추가 필요)
+        - Artist, Album 자동 생성/조회 (Deezer 응답에 포함된 아티스트 이미지 직접 사용)
+        - Music 정보 저장 (미리듣기 URL은 Deezer 응답의 preview_url을 그대로 사용)
+        - 태그는 빈 상태로 저장 (추후 무드 태그 태스크가 채움)
         """,
         parameters=[
             OpenApiParameter(
-                name='itunes_id',
-                type=OpenApiTypes.INT,
+                name='deezer_id',
+                type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description='iTunes Track ID (검색 결과에서 확인 가능)',
+                description='Deezer Track ID (검색 결과에서 확인 가능)',
                 required=True,
                 examples=[
                     OpenApiExample(
-                        name='아이유 - Never Ending Story',
-                        value=1815869481,
-                        description='아이유의 Never Ending Story iTunes ID'
+                        name='예시',
+                        value='3135556',
+                        description='Deezer Track ID 예시'
                     )
                 ]
             )
         ],
         responses={
             200: MusicDetailSerializer,
-            202: {'description': 'Accepted - iTunes 데이터 반환 (DB 저장은 백그라운드 처리 중)'},
-            404: {'description': 'Not Found - iTunes에서 해당 ID를 찾을 수 없음'}
+            202: {'description': 'Accepted - Deezer 데이터 반환 (DB 저장은 백그라운드 처리 중)'},
+            404: {'description': 'Not Found - Deezer에서 해당 ID를 찾을 수 없음'}
         },
         tags=['음악 상세']
     )
-    def get(self, request, itunes_id):
-        """iTunes ID로 음악 상세 조회 (방안 2: DB 저장 비동기 처리)"""
-        
+    def get(self, request, deezer_id):
+        """Deezer ID로 음악 상세 조회 (DB 저장은 백그라운드로 비동기 처리)"""
+
         # 1. DB에서 조회 (이미 저장된 곡인지 확인)
         # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
         try:
-            music = Music.objects.select_related('artist', 'album').get(itunes_id=itunes_id)
+            music = Music.objects.select_related('artist', 'album').get(deezer_id=deezer_id)
             # DB에 이미 있으면 바로 반환 (빠른 응답)
             serializer = MusicDetailSerializer(music)
             return Response(serializer.data, status=status.HTTP_200_OK)
-            
+
         except Music.DoesNotExist:
-            # 2. DB에 없으면 iTunes API 호출 (외부 API 호출, 500ms~2초 소요)
-            itunes_data = iTunesService.lookup(itunes_id)
-            
-            if not itunes_data:
+            # 2. DB에 없으면 Deezer API 호출 (외부 API 호출)
+            track = DeezerService.get_track(deezer_id)
+
+            if not track:
                 return Response(
-                    {'error': '해당 iTunes ID의 음악을 찾을 수 없습니다.'},
+                    {'error': '해당 Deezer ID의 음악을 찾을 수 없습니다.'},
                     status=status.HTTP_404_NOT_FOUND
                 )
-            
-            # 3. iTunes 데이터 파싱 (약 5-10ms)
-            parsed_data = iTunesService.parse_track_data(itunes_data)
-            
-            # 4. 🚀 핵심: DB 저장은 Celery 백그라운드로 비동기 처리
-            #    - DB 저장 시간(50-200ms) 절약
+
+            # 3. 🚀 핵심: DB 저장은 Celery 백그라운드로 비동기 처리
             #    - 사용자는 즉시 응답 받음
             #    - Celery 워커가 백그라운드에서 DB에 저장 처리
-            save_itunes_track_to_db_task.delay(parsed_data)
-            
-            # 5. 파싱된 데이터를 즉시 응답 반환 (DB 저장 완료를 기다리지 않음)
+            save_deezer_track_to_db_task.delay(track)
+
+            # 4. Deezer 데이터를 즉시 응답 반환 (DB 저장 완료를 기다리지 않음)
             #    - 프론트엔드는 이 데이터로 바로 음악 재생 가능
             #    - DB 저장은 백그라운드에서 진행 중
             response_data = {
-                'itunes_id': parsed_data.get('itunes_id'),
-                'music_name': parsed_data.get('music_name'),
+                'deezer_id': track.get('deezer_id'),
+                'music_name': track.get('music_name'),
                 'artist': {
-                    'artist_name': parsed_data.get('artist_name'),
-                    'artist_image': parsed_data.get('artist_image'),
+                    'artist_name': track.get('artist_name'),
                 },
                 'album': {
-                    'album_name': parsed_data.get('album_name'),
-                    'album_image': parsed_data.get('album_image'),
+                    'album_name': track.get('album_name'),
+                    'album_image': track.get('album_image'),
                 },
-                'genre': parsed_data.get('genre'),
-                'duration': parsed_data.get('duration'),
-                'audio_url': parsed_data.get('audio_url'),  # 30초 미리듣기 URL
-                'is_ai': False,  # iTunes 곡은 AI 생성곡이 아님
+                'duration': track.get('duration'),
+                'audio_url': track.get('preview_url'),  # Deezer 응답에 30초 프리뷰 포함
+                'deezer_url': track.get('deezer_url'),
+                'is_ai': False,  # Deezer 곡은 AI 생성곡이 아님
                 'tags': [],  # 새로 저장되는 곡은 태그 없음
                 'created_at': timezone.now().isoformat(),
             }
-            
+
             # 202 Accepted: 요청을 수락했지만 처리가 완료되지 않음 (비동기 처리 중)
             return Response(response_data, status=status.HTTP_202_ACCEPTED)
 

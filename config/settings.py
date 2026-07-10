@@ -193,6 +193,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'music.tasks.cleanup_old_realtime_charts',
         'schedule': crontab(hour=3, minute=0),  # 매일 03:00
     },
+
+    # 메타데이터 refresh: 30일마다 (무드 태그·유사곡 재수집, Spotify/Last.fm 신선도 조항 대응)
+    'refresh-stale-music': {
+        'task': 'music.tasks.refresh_stale_music',
+        'schedule': 60 * 60 * 24 * 30,  # 30일
+    },
 }
 
 # ==============================================
@@ -497,6 +503,9 @@ OPENSEARCH_PASSWORD = os.getenv('OPENSEARCH_PASSWORD', '')
 OPENSEARCH_USE_SSL = os.getenv('OPENSEARCH_USE_SSL', 'True') == 'True'
 OPENSEARCH_VERIFY_CERTS = os.getenv('OPENSEARCH_VERIFY_CERTS', 'True') == 'True'
 OPENSEARCH_INDEX_PREFIX = os.getenv('OPENSEARCH_INDEX_PREFIX', 'music')
+
+# Last.fm API
+LASTFM_API_KEY = os.getenv('LASTFM_API_KEY', '')
 
 # S3 버킷이 설정된 경우에만 S3를 기본 스토리지로 사용
 # 단, DEBUG 모드에서는 로컬 정적 파일 스토리지 사용 (개발 편의성)

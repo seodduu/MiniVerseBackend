@@ -26,6 +26,25 @@ class iTunesSearchResultSerializer(serializers.Serializer):
     has_matching_tags = serializers.BooleanField(default=False)  # 태그 검색 시 매칭 여부
 
 
+class DeezerSearchResultSerializer(serializers.Serializer):
+    """
+    Deezer 검색 결과용 Serializer
+
+    - 필드 순서: deezer_id, music_name, artist_name, album_name,
+      album_image, audio_url(30초 프리뷰), isrc, deezer_url, in_db, has_matching_tags
+    """
+    deezer_id = serializers.CharField(allow_blank=True)
+    music_name = serializers.CharField()
+    artist_name = serializers.CharField(allow_blank=True)
+    album_name = serializers.CharField(allow_blank=True)
+    album_image = serializers.CharField(allow_null=True, allow_blank=True)
+    audio_url = serializers.CharField(allow_null=True, allow_blank=True)  # Deezer 30초 프리뷰
+    isrc = serializers.CharField(allow_null=True, allow_blank=True)
+    deezer_url = serializers.CharField(allow_null=True, allow_blank=True)
+    in_db = serializers.BooleanField(default=False)  # DB에 이미 저장되어 있는지 여부
+    has_matching_tags = serializers.BooleanField(default=False)  # 태그 검색 시 매칭 여부
+
+
 class AiMusicSearchResultSerializer(serializers.Serializer):
     """
     AI 음악 검색 결과용 Serializer

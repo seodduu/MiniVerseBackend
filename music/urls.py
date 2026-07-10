@@ -15,7 +15,7 @@ from .views import (
     MusicSearchView,
     AiMusicSearchView,
     TagMusicSearchView,
-    MusicDetailView as iTunesMusicDetailView,  # iTunes 기반 상세 조회 (기존)
+    MusicDetailView,  # deezer_id 기반 상세 조회
     MusicTagsView,  # 음악 태그 조회
     MusicTagGraphView, # 음악 태그 그래프 조회
     MusicCuratedStationView, # DJ 스테이션 (큐레이션) 조회
@@ -114,9 +114,9 @@ urlpatterns = [
     # POST /api/v1/search/opensearch/sync - DB → OpenSearch 동기화
     path('search/opensearch/sync', OpenSearchSyncView.as_view(), name='opensearch-sync'),
     
-    # iTunes ID 기반 상세 조회 (DB에 없으면 자동 저장)
-    # GET /api/v1/tracks/{itunes_id}
-    path('tracks/<int:itunes_id>', iTunesMusicDetailView.as_view(), name='track-detail'),
+    # Deezer ID 기반 상세 조회 (DB에 없으면 Deezer API 조회 후 자동 저장)
+    # GET /api/v1/tracks/{deezer_id}
+    path('tracks/<str:deezer_id>', MusicDetailView.as_view(), name='track-detail'),
     
     # 음악 재생 정보 조회 및 재생 로그 기록
     # GET /api/v1/tracks/{music_id}/play - 재생 정보 조회 (로그 저장 안 함)
