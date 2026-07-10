@@ -50,6 +50,8 @@ from .views import (
     UserLikedAlbumsView,
     # 음악 추천
     MusicRecommendationView,
+    # 캔버스 GraphRAG
+    CanvasGraphRagView,
 )
 
 # OpenSearch 검색
@@ -107,7 +109,11 @@ urlpatterns = [
     # 태그로 음악 검색
     # GET /api/v1/search/tags?tag={tag_key}&page={num}&page_size={num}
     path('search/tags', TagMusicSearchView.as_view(), name='tag-music-search'),
-    
+
+    # 캔버스 GraphRAG 태그 검색
+    # GET /api/v1/canvas/graphrag?tags={tag1,tag2}&limit={num}
+    path('canvas/graphrag', CanvasGraphRagView.as_view(), name='canvas-graphrag'),
+
     # OpenSearch 기반 검색
     # GET /api/v1/search/opensearch?q={검색어}&sort_by={정렬}&exclude_ai={bool}
     path('search/opensearch', OpenSearchMusicSearchView.as_view(), name='opensearch-search'),

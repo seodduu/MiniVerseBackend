@@ -76,6 +76,9 @@ from .ai_music import (
 # 음악 추천 관련 Views
 from .recommendations import MusicRecommendationView
 
+# 캔버스 GraphRAG 관련 Views
+from .canvas import CanvasGraphRagView
+
 # 외부에서 사용 가능한 모든 클래스 및 함수
 __all__ = [
     # common
@@ -145,4 +148,6 @@ __all__ = [
     'ConvertPromptView',
     # recommendations
     'MusicRecommendationView',
+    # canvas
+    'CanvasGraphRagView',
 ]

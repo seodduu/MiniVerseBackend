@@ -87,6 +87,9 @@ from .ai_music import (
     SunoTaskStatusResponseSerializer,
 )
 
+# 캔버스 GraphRAG Serializers
+from .canvas import CanvasGraphRagResponseSerializer
+
 # 외부에서 사용 가능한 모든 클래스
 __all__ = [
     # base
@@ -146,4 +149,6 @@ __all__ = [
     'UserAiMusicListSerializer',
     'SunoTaskStatusRequestSerializer',
     'SunoTaskStatusResponseSerializer',
+    # canvas
+    'CanvasGraphRagResponseSerializer',
 ]
