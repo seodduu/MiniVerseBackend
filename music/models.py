@@ -296,7 +296,7 @@ class Music(TrackableMixin, models.Model):
     album = models.ForeignKey(Albums, models.DO_NOTHING, blank=True, null=True)
     music_name = models.CharField(max_length=200)
     is_ai = models.BooleanField(blank=True, null=True)
-    audio_url = models.CharField(max_length=200, blank=True, null=True)
+    audio_url = models.CharField(max_length=512, blank=True, null=True)  # Deezer preview는 서명된 긴 URL(~266자)
     genre = models.CharField(max_length=50, blank=True, null=True)
     duration = models.IntegerField(blank=True, null=True)
     # created_at, updated_at, is_deleted는 TrackableMixin에서 제공
