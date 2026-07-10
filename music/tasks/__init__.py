@@ -20,11 +20,6 @@ from .ai_music import (
     process_suno_webhook_task,
 )
 
-# iTunes 통합 작업
-from .itunes import (
-    save_itunes_track_to_db_task,
-)
-
 # 차트 계산 작업
 from .charts import (
     update_realtime_chart,
@@ -64,8 +59,6 @@ __all__ = [
     'upload_suno_audio_to_s3_task',
     'fetch_timestamped_lyrics_task',
     'process_suno_webhook_task',
-    # iTunes
-    'save_itunes_track_to_db_task',
     # 차트
     'update_realtime_chart',
     'update_daily_chart',
