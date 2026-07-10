@@ -220,7 +220,10 @@ def generate_music_task(self, user_prompt: str, user_id: int = None,
                 logger.warning(f"[오디오 저장] 태스크 호출 실패: {e}")
                 _mark_job_failed(job_id, f'오디오 저장 태스크 호출 실패: {e}')
         else:
-            _mark_job_failed(job_id, "생성된 오디오 URL을 찾을 수 없습니다.")
+            # 로컬 폴링(120초)이 타임아웃된 것일 뿐, Suno 생성 자체는 계속 진행 중일 수 있음.
+            # job은 PHASE_PREPARING 상태로 두고, 이후 Suno webhook(process_suno_webhook_task)이
+            # 완료를 보고하면 그때 store_audio_to_db_task를 통해 job을 완료 처리한다.
+            logger.info(f"[오디오 저장] 폴링 타임아웃으로 오디오 URL 미확보 - webhook 완료 대기: job_id={job_id}, music_id={music.music_id}")
 
         # 9. 결과 반환
         return {
@@ -517,7 +520,21 @@ def process_suno_webhook_task(self, webhook_data: dict):
                 upload_suno_audio_to_s3_task.delay(music.music_id, audio_url)
             except Exception as e:
                 logger.error(f"[Webhook 태스크] S3 업로드 태스크 호출 실패: {e}")
-        
+
+        # 로컬 폴링 타임아웃으로 인해 아직 completed 처리되지 않은 GenerationJob이 있다면
+        # webhook이 완료를 보고한 지금 store_audio_to_db_task를 통해 job을 완료 처리한다.
+        if audio_url:
+            try:
+                from ..models import GenerationJob
+                job = GenerationJob.objects.filter(
+                    music_id=music.music_id, phase__in=GenerationJob.ACTIVE_PHASES
+                ).first()
+                if job:
+                    logger.info(f"[Webhook 태스크] GenerationJob 완료 처리 태스크 호출: job_id={job.job_id}, music_id={music.music_id}")
+                    store_audio_to_db_task.delay(music.music_id, audio_url, job_id=job.job_id)
+            except Exception as e:
+                logger.error(f"[Webhook 태스크] GenerationJob 완료 처리 태스크 호출 실패: {e}")
+
         # 타임스탬프 가사 조회 태스크 호출 (가사가 있는 경우에만)
         # is_instrumental 필드가 Music 모델에 없으므로, 가사 존재 여부로 판단
         has_vocals = lyrics and len(lyrics) > 50  # 가사가 50자 이상이면 vocal 곡으로 간주
