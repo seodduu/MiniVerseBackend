@@ -614,7 +614,7 @@ def store_audio_to_db_task(self, music_id: int, source_url: str, job_id: int = N
             music=music,
             defaults={'content_type': content_type, 'data': content, 'size': len(content)},
         )
-        music.audio_url = f"/api/v1/music/{music.music_id}/audio/"
+        music.audio_url = f"/api/v1/{music.music_id}/audio/"
         music.save(update_fields=['audio_url', 'updated_at'])
 
         if job_id:
