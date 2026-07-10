@@ -309,7 +309,6 @@ def generate_music(request):
                 is_ai=True,
                 genre=genre,
                 duration=duration,  # 곡 길이
-                lyrics=lyrics,  # 한국어 가사
                 valence=None,  # null로 저장
                 arousal=None,  # null로 저장
                 itunes_id=None,  # null로 저장
@@ -376,7 +375,6 @@ def generate_music(request):
             "is_ai": music.is_ai,
             "genre": music.genre,
             "duration": music.duration,
-            "lyrics": music.lyrics,
             "valence": None,  # null로 저장
             "arousal": None,  # null로 저장
             "artist_name": artist.artist_name if artist else "AI Artist",

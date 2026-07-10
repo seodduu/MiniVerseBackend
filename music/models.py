@@ -502,3 +502,7 @@ class ArtistGenres(TrackableMixin, models.Model):
         unique_together = (('artist', 'genre'),)
         verbose_name = '아티스트 장르'
         verbose_name_plural = '2️⃣ 🎵 MUSIC - 아티스트 장르'
+
+
+# AI 생성 작업 / 오디오 블롭 모델 (분리된 파일에서 재노출)
+from .models_generation import GenerationJob, MusicAudioBlob  # noqa: E402,F401
