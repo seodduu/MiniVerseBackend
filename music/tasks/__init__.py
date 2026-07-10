@@ -49,6 +49,11 @@ from .enrichment import (
     fetch_similar_tracks_task,
 )
 
+# Spotify 저장 작업
+from .spotify_save import (
+    save_spotify_track_to_db_task,
+)
+
 __all__ = [
     # 공통
     'test_task',
@@ -73,4 +78,6 @@ __all__ = [
     # GraphRAG 강화 수집
     'fetch_mood_tags_task',
     'fetch_similar_tracks_task',
+    # Spotify 저장
+    'save_spotify_track_to_db_task',
 ]
