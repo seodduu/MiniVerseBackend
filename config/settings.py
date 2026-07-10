@@ -507,6 +507,21 @@ OPENSEARCH_INDEX_PREFIX = os.getenv('OPENSEARCH_INDEX_PREFIX', 'music')
 # Last.fm API
 LASTFM_API_KEY = os.getenv('LASTFM_API_KEY', '')
 
+# ==============================================
+# AI music generation (Ollama + Suno)
+# ==============================================
+# ``os.getenv(key, default)`` does not use the default when a key exists with an
+# empty value. Normalizing here keeps a partially-filled .env from producing an
+# invalid URL such as "/api/v1/generate".
+WINDOWS_LLAMA_IP = os.getenv('WINDOWS_LLAMA_IP', '').strip() or 'host.docker.internal'
+LLAMA_MODEL_NAME = os.getenv('LLAMA_MODEL_NAME', '').strip() or 'llama3.1:8b-instruct-q8_0'
+
+SUNO_API_URL = os.getenv('SUNO_API_URL', '').strip().rstrip('/') or 'https://api.sunoapi.org'
+SUNO_API_KEY = os.getenv('SUNO_API_KEY', '').strip()
+SUNO_CALLBACK_URL = os.getenv('SUNO_CALLBACK_URL', '').strip()
+SUNO_MODEL_VERSION = (os.getenv('SUNO_MODEL_VERSION', '').strip() or 'V4_5').replace('.', '_')
+SUNO_TEST_MODE = os.getenv('SUNO_TEST_MODE', 'false').strip().lower() in ('true', '1', 'yes')
+
 # S3 버킷이 설정된 경우에만 S3를 기본 스토리지로 사용
 # 단, DEBUG 모드에서는 로컬 정적 파일 스토리지 사용 (개발 편의성)
 if AWS_STORAGE_BUCKET_NAME and not DEBUG:
@@ -611,4 +626,3 @@ if not DEBUG:
         '()': SlowQueryFilter,
     }
     LOGGING['handlers']['slow_queries']['filters'] = ['slow_query_filter']
-

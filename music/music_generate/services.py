@@ -3,13 +3,13 @@
 - LlamaService: 한국어 프롬프트를 영어로 변환
 - SunoAPIService: Suno API를 통한 음악 생성
 """
-import os
 import re
 import json
 import requests
 import time
 from typing import Dict, Optional
 
+from django.conf import settings
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -23,8 +23,8 @@ class LlamaService:
     """
     
     def __init__(self):
-        self.llama_ip = os.getenv('WINDOWS_LLAMA_IP', '100.92.0.45')
-        self.model_name = os.getenv('LLAMA_MODEL_NAME', 'llama3.1:8b-instruct-q8_0')
+        self.llama_ip = settings.WINDOWS_LLAMA_IP
+        self.model_name = settings.LLAMA_MODEL_NAME
         self.llm = None
         self._setup_llm()
     
@@ -129,15 +129,12 @@ class SunoAPIService:
     """
     
     def __init__(self):
-        self.api_key = os.getenv('SUNO_API_KEY')
-        self.api_url = os.getenv('SUNO_API_URL', 'https://api.sunoapi.org')
-        # 모델 버전: V4_5, V4_5ALL, V4_5PLUS, V5 등
-        model_env = os.getenv('SUNO_MODEL_VERSION', 'V4_5')
-        # 환경 변수에 점(.)이 있으면 언더스코어로 변환 (V4.5 -> V4_5)
-        self.model_version = model_env.replace('.', '_')
+        self.api_key = settings.SUNO_API_KEY
+        self.api_url = settings.SUNO_API_URL
+        self.model_version = settings.SUNO_MODEL_VERSION
         
         # 테스트 모드: SUNO_TEST_MODE=true로 설정하면 실제 API 호출 없이 Mock 데이터 반환
-        self.test_mode = os.getenv('SUNO_TEST_MODE', 'false').lower() in ('true', '1', 'yes')
+        self.test_mode = settings.SUNO_TEST_MODE
         
         if not self.api_key and not self.test_mode:
             raise ValueError("SUNO_API_KEY 환경 변수가 설정되지 않았습니다.")
@@ -163,7 +160,7 @@ class SunoAPIService:
         Returns:
             검증된 콜백 URL
         """
-        callback_url = os.getenv('SUNO_CALLBACK_URL', '').strip()
+        callback_url = settings.SUNO_CALLBACK_URL
         
         # 환경 변수가 없거나 비어있으면 기본값 사용
         if not callback_url:

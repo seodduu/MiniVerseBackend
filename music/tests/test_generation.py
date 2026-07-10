@@ -1,12 +1,35 @@
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from music.models import GenerationJob, Users
 from music.models import Music, MusicAudioBlob
 from music.serializers.generation import GenerationJobSerializer
+
+
+class MusicGenerationEnvironmentTest(SimpleTestCase):
+    @override_settings(
+        SUNO_API_KEY='real-key',
+        SUNO_API_URL='https://api.example.test',
+        SUNO_MODEL_VERSION='V5',
+        SUNO_CALLBACK_URL='https://backend.example.test/api/v1/webhook/suno/',
+        SUNO_TEST_MODE=False,
+    )
+    def test_suno_service_uses_django_environment_settings(self):
+        from music.music_generate.services import SunoAPIService
+
+        service = SunoAPIService()
+
+        self.assertEqual(service.api_key, 'real-key')
+        self.assertEqual(service.api_url, 'https://api.example.test')
+        self.assertEqual(service.model_version, 'V5')
+        self.assertFalse(service.test_mode)
+        self.assertEqual(
+            service._get_callback_url(),
+            'https://backend.example.test/api/v1/webhook/suno/',
+        )
 
 
 class GenerationJobModelTest(TestCase):
