@@ -13,8 +13,27 @@ from ..utils.s3_upload import download_and_upload_to_s3, is_suno_url, is_s3_url,
 logger = logging.getLogger(__name__)
 
 
+def _mark_job_preparing(job_id, music_id):
+    if not job_id:
+        return
+    from ..models import GenerationJob
+    GenerationJob.objects.filter(pk=job_id).update(
+        phase=GenerationJob.PHASE_PREPARING, music_id=music_id,
+    )
+
+
+def _mark_job_failed(job_id, message):
+    if not job_id:
+        return
+    from ..models import GenerationJob
+    GenerationJob.objects.filter(pk=job_id).update(
+        phase=GenerationJob.PHASE_FAILED, error=str(message)[:2000],
+    )
+
+
 @shared_task(bind=True, max_retries=3)
-def generate_music_task(self, user_prompt: str, user_id: int = None, make_instrumental: bool = False):
+def generate_music_task(self, user_prompt: str, user_id: int = None,
+                        make_instrumental: bool = False, job_id: int = None):
     """
     비동기로 음악을 생성하는 Celery 작업
     
@@ -172,14 +191,16 @@ def generate_music_task(self, user_prompt: str, user_id: int = None, make_instru
             is_ai=True,
             genre=genre,
             duration=duration,
-            lyrics=lyrics,
             valence=None,
             arousal=None,
             created_at=now,
             updated_at=now,
             is_deleted=False
         )
-        
+
+        # GenerationJob → preparing_audio 전이
+        _mark_job_preparing(job_id, music.music_id)
+
         # 7. AiInfo 모델에 프롬프트 정보 저장
         # task_id 필드를 직접 설정해야 webhook 태스크에서 찾을 수 있음
         ai_info = AiInfo.objects.create(
@@ -191,13 +212,15 @@ def generate_music_task(self, user_prompt: str, user_id: int = None, make_instru
             is_deleted=False
         )
 
-        # 8. S3 업로드 태스크 호출 (비동기)
-        if audio_url and is_suno_url(audio_url):
+        # 8. 오디오를 Postgres에 저장 (S3 대체). 완료 시 job.phase=completed.
+        if audio_url:
             try:
-                logger.info(f"[S3 업로드] S3 오디오 업로드 태스크 호출: music_id={music.music_id}")
-                upload_suno_audio_to_s3_task.delay(music.music_id, audio_url)
+                store_audio_to_db_task.delay(music.music_id, audio_url, job_id=job_id)
             except Exception as e:
-                logger.warning(f"[S3 업로드] S3 업로드 태스크 호출 실패 (계속 진행): {e}")
+                logger.warning(f"[오디오 저장] 태스크 호출 실패: {e}")
+                _mark_job_failed(job_id, f'오디오 저장 태스크 호출 실패: {e}')
+        else:
+            _mark_job_failed(job_id, "생성된 오디오 URL을 찾을 수 없습니다.")
 
         # 9. 결과 반환
         return {
@@ -228,6 +251,7 @@ def generate_music_task(self, user_prompt: str, user_id: int = None, make_instru
         if self.request.retries < self.max_retries:
             raise self.retry(exc=e, countdown=5)
         else:
+            _mark_job_failed(job_id, str(e))
             return {
                 'success': False,
                 'error': str(e)
@@ -326,12 +350,8 @@ def fetch_timestamped_lyrics_task(self, music_id: int, task_id: str, audio_id: s
         timestamped_lyrics = suno_service.get_timestamped_lyrics(task_id, audio_id)
         
         if timestamped_lyrics:
-            # Music 모델 업데이트
-            music.lyrics = timestamped_lyrics
-            music.updated_at = timezone.now()
-            music.save()
-            
-            logger.info(f"[타임스탬프 가사] 완료: music_id={music_id}, 가사 길이={len(timestamped_lyrics)}")
+            # music.lyrics 컬럼이 제거되어 더 이상 저장하지 않음 (AI 곡은 가사를 보관하지 않음)
+            logger.info(f"[타임스탬프 가사] 완료 (저장 생략, 컬럼 제거됨): music_id={music_id}, 가사 길이={len(timestamped_lyrics)}")
             return timestamped_lyrics
         else:
             logger.warning(f"[타임스탬프 가사] 조회 실패 또는 가사 없음: music_id={music_id}")
@@ -480,15 +500,8 @@ def process_suno_webhook_task(self, webhook_data: dict):
         if duration:
             music.duration = duration
         
-        # lyrics: prompt에 가사 패턴이 있으면 fallback으로 사용
-        if not lyrics and isinstance(prompt_text, str):
-            if ('[Verse' in prompt_text or '[Chorus' in prompt_text or '[Bridge' in prompt_text) or prompt_text.count('\n') > 5:
-                lyrics = prompt_text
-                logger.info(f"[Webhook 태스크] prompt를 가사로 사용 (길이={len(lyrics)})")
-        
-        if lyrics:
-            music.lyrics = lyrics
-        
+        # music.lyrics 컬럼이 제거되어 더 이상 저장하지 않음 (AI 곡은 가사를 보관하지 않음)
+
         if genre:
             music.genre = genre
         
@@ -582,3 +595,39 @@ def process_suno_webhook_task(self, webhook_data: dict):
         
         logger.error(f"[Webhook 태스크] 최대 재시도 횟수 초과")
         return {"status": "error", "message": str(e)}
+
+
+@shared_task(bind=True, max_retries=3)
+def store_audio_to_db_task(self, music_id: int, source_url: str, job_id: int = None):
+    """Suno CDN 오디오를 받아 MusicAudioBlob(Postgres)에 저장하고 job을 완료 처리."""
+    import requests
+    from ..models import Music, MusicAudioBlob, GenerationJob
+
+    try:
+        music = Music.objects.get(music_id=music_id)
+        resp = requests.get(source_url, timeout=60)
+        resp.raise_for_status()
+        content = resp.content
+        content_type = resp.headers.get('Content-Type', 'audio/mpeg')
+
+        MusicAudioBlob.objects.update_or_create(
+            music=music,
+            defaults={'content_type': content_type, 'data': content, 'size': len(content)},
+        )
+        music.audio_url = f"/api/v1/{music.music_id}/audio/"
+        music.save(update_fields=['audio_url', 'updated_at'])
+
+        if job_id:
+            GenerationJob.objects.filter(pk=job_id).update(
+                phase=GenerationJob.PHASE_COMPLETED,
+            )
+        return {'success': True, 'music_id': music_id, 'size': len(content)}
+    except Exception as e:
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=5)
+        if job_id:
+            from ..models import GenerationJob as GJ
+            GJ.objects.filter(pk=job_id).update(
+                phase=GJ.PHASE_FAILED, error=f'오디오 저장 실패: {e}',
+            )
+        return {'success': False, 'error': str(e)}

@@ -401,7 +401,6 @@ class AiMusicGenerationService:
             is_ai=True,
             genre=music_data['genre'],
             duration=music_data['duration'],
-            lyrics=music_data['lyrics'],
             valence=None,
             arousal=None,
             itunes_id=None,

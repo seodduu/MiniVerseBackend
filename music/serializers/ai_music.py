@@ -97,7 +97,6 @@ class MusicGenerateResponseSerializer(serializers.ModelSerializer):
             'is_ai',
             'genre',
             'duration',
-            'lyrics',
             'valence',
             'arousal',
             'artist_name',
@@ -165,7 +164,6 @@ class MusicGenerateSimpleResponseSerializer(serializers.Serializer):
     is_ai = serializers.BooleanField(help_text="AI 생성 여부")
     genre = serializers.CharField(allow_null=True, help_text="장르")
     duration = serializers.IntegerField(allow_null=True, help_text="재생 시간 (초)")
-    lyrics = serializers.CharField(allow_null=True, help_text="가사")
     valence = serializers.DecimalField(
         max_digits=10, 
         decimal_places=6, 
@@ -202,7 +200,6 @@ class MusicGenerateSimpleResponseSerializer(serializers.Serializer):
             'is_ai': music.is_ai,
             'genre': music.genre,
             'duration': music.duration,
-            'lyrics': music.lyrics,
             'valence': None,  # 항상 null
             'arousal': None,  # 항상 null
             'artist_name': artist.artist_name if artist else "AI Artist",
@@ -285,7 +282,6 @@ class UserAiMusicListSerializer(serializers.ModelSerializer):
             'music_id',
             'music_name',
             'audio_url',
-            'lyrics',
             'album_image_square',
             'like_count',
             'tags',
