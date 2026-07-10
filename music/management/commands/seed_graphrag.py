@@ -56,6 +56,10 @@ class Command(BaseCommand):
             help="정보용 라벨(어떤 DB에 대해 실행 중인지 로그에 남기기 위함). "
                  "실제 접속 DB는 Django SQL_DATABASE 설정을 따른다.",
         )
+        parser.add_argument(
+            "--page", type=int, default=1,
+            help="Last.fm tag.getTopTracks 페이지 (기본 1)",
+        )
 
     def handle(self, *args, **options):
         # Celery eager 모드: .delay() 호출이 즉시 동기 실행되도록 강제한다.
@@ -64,12 +68,14 @@ class Command(BaseCommand):
         celery_app.conf.task_eager_propagates = False
 
         count = options["count"]
+        page = max(options["page"], 1)
         db_label = options.get("db")
         if db_label:
             self.stdout.write(f"[seed_graphrag] target db label: {db_label}")
         self.stdout.write(f"[seed_graphrag] target count: {count}")
+        self.stdout.write(f"[seed_graphrag] Last.fm candidate page: {page}")
 
-        candidates = self._collect_candidates(count)
+        candidates = self._collect_candidates(count, page)
         self.stdout.write(f"[seed_graphrag] collected {len(candidates)} candidates from Last.fm mood tags")
 
         saved_music = self._pass1_save_and_mood(candidates)
@@ -83,13 +89,15 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     # Candidate collection
     # ------------------------------------------------------------------
-    def _collect_candidates(self, count: int):
+    def _collect_candidates(self, count: int, page: int = 1):
         per_tag_limit = math.ceil(count / len(MOOD_TAGS)) + 3
         seen = set()
         candidates = []
         for tag in MOOD_TAGS:
             try:
-                pairs = LastfmService.get_tag_top_tracks(tag, limit=per_tag_limit)
+                pairs = LastfmService.get_tag_top_tracks(
+                    tag, limit=per_tag_limit, page=page
+                )
             except Exception as e:
                 self.stderr.write(f"[seed_graphrag] tag.getTopTracks failed for '{tag}': {e}")
                 continue
