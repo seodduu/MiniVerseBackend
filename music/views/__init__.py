@@ -77,7 +77,7 @@ from .ai_music import (
 from .recommendations import MusicRecommendationView
 
 # 캔버스 GraphRAG 관련 Views
-from .canvas import CanvasGraphRagView
+from .canvas import CanvasGraphRagView, CanvasAskView, CanvasAnswerView
 
 # 외부에서 사용 가능한 모든 클래스 및 함수
 __all__ = [
@@ -150,4 +150,6 @@ __all__ = [
     'MusicRecommendationView',
     # canvas
     'CanvasGraphRagView',
+    'CanvasAskView',
+    'CanvasAnswerView',
 ]
