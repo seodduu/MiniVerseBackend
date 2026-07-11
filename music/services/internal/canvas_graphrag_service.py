@@ -21,7 +21,7 @@ class CanvasGraphRagService:
     MAX_GENRE_CANDIDATES = 300
     SIMILAR_DECAY = 0.75
     MOOD_RADIUS = 1.0
-    WEIGHTS = {"direct_tag": 0.50, "similar": 0.25, "genre": 0.10, "mood": 0.15}
+    WEIGHTS = {"direct_tag": 0.50, "similar": 0.30, "genre": 0.05, "mood": 0.15}
 
     @classmethod
     def search(cls, tag_values: List[str], limit: int | None = None) -> Dict[str, Any]:
