@@ -4,17 +4,19 @@ from django.db import models
 class GenerationJob(models.Model):
     """AI 음악 생성 작업의 진행 상태를 서버 측에서 추적하는 레코드."""
 
+    PHASE_CONVERTING = 'converting'
     PHASE_GENERATING = 'generating'
     PHASE_PREPARING = 'preparing_audio'
     PHASE_COMPLETED = 'completed'
     PHASE_FAILED = 'failed'
     PHASE_CHOICES = [
+        (PHASE_CONVERTING, 'Converting'),
         (PHASE_GENERATING, 'Generating'),
         (PHASE_PREPARING, 'Preparing audio'),
         (PHASE_COMPLETED, 'Completed'),
         (PHASE_FAILED, 'Failed'),
     ]
-    ACTIVE_PHASES = [PHASE_GENERATING, PHASE_PREPARING]
+    ACTIVE_PHASES = [PHASE_CONVERTING, PHASE_GENERATING, PHASE_PREPARING]
 
     job_id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey('Users', models.DO_NOTHING, db_index=True)
@@ -34,7 +36,7 @@ class GenerationJob(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=['user'],
-                condition=models.Q(phase__in=['generating', 'preparing_audio']),
+                condition=models.Q(phase__in=['converting', 'generating', 'preparing_audio']),
                 name='uniq_active_generation_per_user',
             ),
         ]

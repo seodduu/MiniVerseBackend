@@ -22,6 +22,16 @@ def _mark_job_preparing(job_id, music_id):
     )
 
 
+def _mark_job_generating(job_id, converted_prompt):
+    if not job_id:
+        return
+    from ..models import GenerationJob
+    GenerationJob.objects.filter(pk=job_id).update(
+        phase=GenerationJob.PHASE_GENERATING,
+        converted_prompt=str(converted_prompt)[:2000] if converted_prompt else None,
+    )
+
+
 def _mark_job_failed(job_id, message):
     if not job_id:
         return
@@ -53,7 +63,10 @@ def generate_music_task(self, user_prompt: str, user_id: int = None,
         
         if not english_prompt:
             raise Exception("프롬프트 변환에 실패했습니다.")
-        
+
+        # GenerationJob → generating 전이 (변환 완료, 변환된 프롬프트 기록)
+        _mark_job_generating(job_id, english_prompt)
+
         # 2. Suno API로 음악 생성
         suno_service = SunoAPIService()
         music_result = suno_service.generate_music(
