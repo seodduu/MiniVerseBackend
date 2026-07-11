@@ -1,13 +1,16 @@
 """
 차트 조회 관련 Views
 """
+from datetime import timedelta
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiExample
-from django.utils.timezone import localtime
+from django.db.models import Count
+from django.utils import timezone
 
-from ..models import Charts
+from ..models import Charts, Music, PlayLogs
 from ..serializers import ChartItemSerializer, ChartResponseSerializer
 
 
@@ -19,6 +22,7 @@ class ChartView(APIView):
     
     # 유효한 차트 타입
     VALID_TYPES = ['realtime', 'daily', 'ai']
+    CHART_LIMIT = 100
     
     @extend_schema(
         summary="차트 조회",
@@ -117,6 +121,11 @@ class ChartView(APIView):
         latest_chart = Charts.objects.filter(type=type).order_by('-chart_date').first()
         
         if not latest_chart:
+            if type == 'realtime':
+                fallback_data = self._build_realtime_fallback_response()
+                if fallback_data:
+                    return Response(fallback_data, status=status.HTTP_200_OK)
+
             return Response(
                 {"detail": f"'{type}' 차트 데이터가 없습니다"},
                 status=status.HTTP_404_NOT_FOUND
@@ -135,6 +144,11 @@ class ChartView(APIView):
             'music__artist',
             'music__album'
         ).order_by('rank')
+
+        if type == 'realtime' and not chart_items.exists():
+            fallback_data = self._build_realtime_fallback_response()
+            if fallback_data:
+                return Response(fallback_data, status=status.HTTP_200_OK)
         
         # 4. 이전 차트 조회 (순위 변동 계산용)
         previous_chart = Charts.objects.filter(
@@ -174,3 +188,87 @@ class ChartView(APIView):
         }
         
         return Response(response_data, status=status.HTTP_200_OK)
+
+    def _build_realtime_fallback_response(self):
+        """
+        실시간 차트 스냅샷이 없을 때 DB의 현재 더미 데이터를 사용해 응답을 구성한다.
+        우선 최근 재생 로그를 집계하고, 로그도 없으면 음악 테이블의 활성 곡을 최신순으로 노출한다.
+        """
+        chart_items = self._build_items_from_recent_play_logs()
+        if not chart_items:
+            chart_items = self._build_items_from_music_dummy_data()
+
+        if not chart_items:
+            return None
+
+        return {
+            "type": "realtime",
+            "generated_at": timezone.now(),
+            "total_count": len(chart_items),
+            "items": ChartItemSerializer(chart_items, many=True).data,
+        }
+
+    def _build_items_from_recent_play_logs(self):
+        now = timezone.now()
+        start_time = now - timedelta(hours=3)
+        play_counts = (
+            PlayLogs.objects
+            .filter(
+                played_at__gte=start_time,
+                played_at__lt=now,
+                music__is_deleted=False,
+            )
+            .values('music_id')
+            .annotate(play_count=Count('play_log_id'))
+            .order_by('-play_count', 'music_id')[:self.CHART_LIMIT]
+        )
+
+        if not play_counts:
+            return []
+
+        music_by_id = {
+            music.music_id: music
+            for music in Music.objects.filter(
+                music_id__in=[item['music_id'] for item in play_counts]
+            ).select_related('artist', 'album')
+        }
+
+        chart_items = []
+        for rank, item in enumerate(play_counts, start=1):
+            music = music_by_id.get(item['music_id'])
+            if not music:
+                continue
+
+            chart = Charts(
+                music=music,
+                music_id=music.music_id,
+                play_count=item['play_count'],
+                rank=rank,
+                type='realtime',
+            )
+            chart.rank_change = None
+            chart_items.append(chart)
+
+        return chart_items
+
+    def _build_items_from_music_dummy_data(self):
+        music_items = (
+            Music.objects
+            .select_related('artist', 'album')
+            .order_by('-updated_at', '-created_at', 'music_id')[:self.CHART_LIMIT]
+        )
+
+        total_count = len(music_items)
+        chart_items = []
+        for rank, music in enumerate(music_items, start=1):
+            chart = Charts(
+                music=music,
+                music_id=music.music_id,
+                play_count=total_count - rank + 1,
+                rank=rank,
+                type='realtime',
+            )
+            chart.rank_change = None
+            chart_items.append(chart)
+
+        return chart_items
