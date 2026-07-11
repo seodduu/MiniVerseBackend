@@ -77,3 +77,44 @@ class CanvasGraphRagResponseSerializer(serializers.Serializer):
     query = CanvasGraphRagQuerySerializer()
     items = CanvasGraphRagItemSerializer(many=True)
     meta = CanvasGraphRagMetaSerializer()
+
+
+# ============================================================
+# 캔버스 자연어 질의응답 (Canvas NLQ)
+# ============================================================
+
+
+class CanvasAskRequestSerializer(serializers.Serializer):
+    """POST /api/v1/canvas/ask 요청 검증."""
+
+    query = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    limit = serializers.IntegerField(required=False, allow_null=True)
+
+
+class CanvasInterpretationSerializer(serializers.Serializer):
+    """LLM 질의 해석 결과 (① 태그 추출)."""
+
+    original_query = serializers.CharField(allow_blank=True)
+    extracted_tags = serializers.ListField(child=serializers.CharField())
+    source = serializers.ChoiceField(choices=["llm", "fallback_direct"])
+
+
+class CanvasAskResponseSerializer(CanvasGraphRagResponseSerializer):
+    """기존 CanvasGraphRagResponseSerializer 계약 + interpretation 필드."""
+
+    interpretation = CanvasInterpretationSerializer()
+
+
+class CanvasAnswerRequestSerializer(serializers.Serializer):
+    """POST /api/v1/canvas/answer 요청 검증."""
+
+    query = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    tags = serializers.ListField(child=serializers.CharField(), allow_empty=True)
+
+
+class CanvasAnswerResponseSerializer(serializers.Serializer):
+    """POST /api/v1/canvas/answer 응답 (③ 답변 생성)."""
+
+    answer = serializers.CharField(allow_null=True, required=False)
+    model = serializers.CharField(required=False)
+    reason = serializers.CharField(required=False)

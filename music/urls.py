@@ -52,6 +52,9 @@ from .views import (
     MusicRecommendationView,
     # 캔버스 GraphRAG
     CanvasGraphRagView,
+    # 캔버스 자연어 질의응답
+    CanvasAskView,
+    CanvasAnswerView,
 )
 
 # OpenSearch 검색
@@ -113,6 +116,14 @@ urlpatterns = [
     # 캔버스 GraphRAG 태그 검색
     # GET /api/v1/canvas/graphrag?tags={tag1,tag2}&limit={num}
     path('canvas/graphrag', CanvasGraphRagView.as_view(), name='canvas-graphrag'),
+
+    # 캔버스 자연어 질의 → 태그 추출 + GraphRAG 검색
+    # POST /api/v1/canvas/ask {"query": "...", "limit": 120}
+    path('canvas/ask', CanvasAskView.as_view(), name='canvas-ask'),
+
+    # 캔버스 자연어 질의 → 근거 기반 답변 생성
+    # POST /api/v1/canvas/answer {"query": "...", "tags": [...]}
+    path('canvas/answer', CanvasAnswerView.as_view(), name='canvas-answer'),
 
     # OpenSearch 기반 검색
     # GET /api/v1/search/opensearch?q={검색어}&sort_by={정렬}&exclude_ai={bool}
