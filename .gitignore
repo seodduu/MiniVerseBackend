@@ -45,3 +45,11 @@ static_root/
 
 #
 .antigravityrules
+
+# =============================================
+# 런타임 / 로컬 도구 아티팩트
+# =============================================
+# Celery beat 스케줄 상태(shelve). 런타임에 갱신되는 파일이라 추적하지 않음
+celerybeat-schedule
+# git worktree 로컬 디렉터리
+.worktrees/
