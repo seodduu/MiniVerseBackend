@@ -174,7 +174,17 @@ class MusicPlayView(APIView):
                 {'error': '음악을 찾을 수 없습니다.'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
+
+        # 1-1. Deezer 프리뷰 URL은 ~15분 후 만료되므로, 재생 시점에 항상 새 URL을 발급받는다.
+        #      (DB에 저장된 URL은 시드 시점 기준이라 재생 시점엔 만료되어 403이 발생할 수 있음)
+        if music.deezer_id:
+            try:
+                track = DeezerService.get_track(music.deezer_id)
+            except Exception:
+                track = None
+            if track and track.get('preview_url'):
+                music.audio_url = track['preview_url']  # DB에는 저장하지 않고 in-memory에만 반영
+
         # 2. audio_url 검증
         if not music.audio_url:
             return Response(
