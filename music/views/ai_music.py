@@ -233,7 +233,7 @@ class AiMusicGenerateAsyncView(APIView):
                     user=user,
                     original_prompt=validated_data['prompt'][:1500],
                     converted_prompt=converted_prompt,
-                    phase=GenerationJob.PHASE_GENERATING,
+                    phase=GenerationJob.PHASE_CONVERTING,
                 )
         except IntegrityError:
             return Response(
