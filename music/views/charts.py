@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiExample
+from django.core.cache import cache
 from django.db.models import Count
 from django.utils import timezone
 
@@ -116,7 +117,14 @@ class ChartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # 2. 최신 차트 날짜 조회
+        # 2. 캐시 조회 (cache-aside 패턴)
+        # 캐시에 있으면 DB 조회 없이 바로 반환한다
+        cache_key = f"charts:{type}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data, status=status.HTTP_200_OK)
+
+        # 3. 최신 차트 날짜 조회
         # SoftDeleteManager가 자동으로 is_deleted=False인 레코드만 조회
         latest_chart = Charts.objects.filter(type=type).order_by('-chart_date').first()
         
@@ -131,14 +139,12 @@ class ChartView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # 3. 현재 차트 조회
-        # DB가 timestamp(timezone 없음)이므로 날짜+시간 문자열로 비교
+        # 4. 현재 차트 조회
+        # latest_chart.chart_date는 같은 테이블에서 방금 읽은 값이므로 그대로 동등 비교하면 정확히 매칭된다
         chart_items = Charts.objects.filter(
             type=type,
+            chart_date=latest_chart.chart_date,
             music__is_deleted=False  # 삭제된 음악 제외
-        ).extra(
-            where=["chart_date::text = %s::text"],
-            params=[str(latest_chart.chart_date)]
         ).select_related(
             'music',
             'music__artist',
@@ -150,7 +156,7 @@ class ChartView(APIView):
             if fallback_data:
                 return Response(fallback_data, status=status.HTTP_200_OK)
         
-        # 4. 이전 차트 조회 (순위 변동 계산용)
+        # 5. 이전 차트 조회 (순위 변동 계산용)
         previous_chart = Charts.objects.filter(
             type=type,
             chart_date__lt=latest_chart.chart_date,
@@ -162,15 +168,13 @@ class ChartView(APIView):
             # 이전 차트의 순위 정보를 {music_id: rank} 딕셔너리로 구성
             previous_items = Charts.objects.filter(
                 type=type,
+                chart_date=previous_chart.chart_date,
                 music__is_deleted=False  # 삭제된 음악 제외
-            ).extra(
-                where=["chart_date::text = %s::text"],
-                params=[str(previous_chart.chart_date)]
             ).values('music_id', 'rank')
 
             previous_ranks = {item['music_id']: item['rank'] for item in previous_items}
         
-        # 5. 각 차트 항목에 rank_change 추가
+        # 6. 각 차트 항목에 rank_change 추가
         for chart in chart_items:
             if chart.music_id in previous_ranks:
                 # 이전 순위 - 현재 순위 (양수=상승, 음수=하락, 0=유지)
@@ -179,14 +183,17 @@ class ChartView(APIView):
                 # 이전 차트에 없었음 (신규 진입)
                 chart.rank_change = None
         
-        # 6. 응답 구성
+        # 7. 응답 구성
         response_data = {
             "type": type,
             "generated_at": latest_chart.chart_date,
             "total_count": chart_items.count(),
             "items": ChartItemSerializer(chart_items, many=True).data
         }
-        
+
+        # 캐시에 저장 (TTL 15분, 무효화가 정상 동작하면 그 전에 태스크가 삭제함)
+        cache.set(cache_key, response_data, timeout=900)
+
         return Response(response_data, status=status.HTTP_200_OK)
 
     def _build_realtime_fallback_response(self):

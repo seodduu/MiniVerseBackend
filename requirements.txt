@@ -10,6 +10,7 @@ django-cors-headers                 # CORS 설정 (React 프론트엔드와 통�
 # 데이터베이스
 # ==============================================
 psycopg2-binary                     # PostgreSQL 데이터베이스 어댑터
+django-redis                        # Redis 캐시 백엔드 (django-redis)
 
 # ==============================================
 # 비동기 작업

@@ -18,9 +18,11 @@ scrape_configs:
   # Django 애플리케이션 메트릭 (django-prometheus 사용 시)
   - job_name: 'django'
     static_configs:
-      - targets: ['backend:8000']
+      - targets: ['web:8000']
         labels:
           service: 'django'
+          # 대시보드 쿼리가 instance="backend-server"로 필터링하므로 prod와 동일하게 맞춤
+          instance: 'backend-server'
 
   # cAdvisor - 컨테이너 리소스 모니터링
   - job_name: 'cadvisor'
