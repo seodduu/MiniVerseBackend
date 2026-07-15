@@ -101,6 +101,22 @@ DATABASES = {
 }
 
 
+# ==============================================
+# Redis 캐시 설정 (cache-aside)
+# ==============================================
+# cache-aside 패턴으로 차트 조회 API 응답을 캐싱한다.
+# TTL은 무효화 누락 시를 대비한 안전망 역할이며, 정상적으로는 차트 갱신 태스크가 캐시를 즉시 삭제한다.
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': os.getenv('REDIS_URL', 'redis://redis:6379/1'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+    }
+}
+
+
 # 비밀번호 유효성 검사
 # 자세한 내용은 https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators 참조
 # 기본 Django 비밀번호 유효성 검사기

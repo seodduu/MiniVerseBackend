@@ -4,6 +4,7 @@
 import logging
 from datetime import timedelta
 from celery import shared_task
+from django.core.cache import cache
 from django.utils import timezone
 from django.utils.timezone import localtime
 from django.db.models import Count
@@ -61,6 +62,10 @@ def update_realtime_chart():
                 created_count += 1
             
             logger.info(f"[실시간 차트] 갱신 완료: {created_count}개 항목")
+
+            # 캐시 무효화 (차트 데이터가 갱신되었으므로 다음 조회 시 새로 캐싱)
+            cache.delete('charts:realtime')
+
             return {"status": "success", "count": created_count}
             
     except Exception as e:
@@ -118,6 +123,10 @@ def update_daily_chart():
                 created_count += 1
             
             logger.info(f"[일일 차트] 갱신 완료: {created_count}개 항목")
+
+            # 캐시 무효화 (차트 데이터가 갱신되었으므로 다음 조회 시 새로 캐싱)
+            cache.delete('charts:daily')
+
             return {"status": "success", "count": created_count}
             
     except Exception as e:
@@ -176,6 +185,10 @@ def update_ai_chart():
                 created_count += 1
             
             logger.info(f"[AI 차트] 갱신 완료: {created_count}개 항목")
+
+            # 캐시 무효화 (차트 데이터가 갱신되었으므로 다음 조회 시 새로 캐싱)
+            cache.delete('charts:ai')
+
             return {"status": "success", "count": created_count}
             
     except Exception as e:
