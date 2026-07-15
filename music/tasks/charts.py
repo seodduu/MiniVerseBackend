@@ -63,8 +63,9 @@ def update_realtime_chart():
             
             logger.info(f"[실시간 차트] 갱신 완료: {created_count}개 항목")
 
-            # 캐시 무효화 (차트 데이터가 갱신되었으므로 다음 조회 시 새로 캐싱)
-            cache.delete('charts:realtime')
+            # 캐시 무효화 — 커밋 성공 직후에 실행되도록 예약
+            # (커밋 전에 지우면 그 틈의 조회가 옛 데이터를 다시 캐싱하는 레이스가 생김)
+            transaction.on_commit(lambda: cache.delete('charts:realtime'))
 
             return {"status": "success", "count": created_count}
             
@@ -124,8 +125,8 @@ def update_daily_chart():
             
             logger.info(f"[일일 차트] 갱신 완료: {created_count}개 항목")
 
-            # 캐시 무효화 (차트 데이터가 갱신되었으므로 다음 조회 시 새로 캐싱)
-            cache.delete('charts:daily')
+            # 캐시 무효화 — 커밋 성공 직후에 실행되도록 예약
+            transaction.on_commit(lambda: cache.delete('charts:daily'))
 
             return {"status": "success", "count": created_count}
             
@@ -186,8 +187,8 @@ def update_ai_chart():
             
             logger.info(f"[AI 차트] 갱신 완료: {created_count}개 항목")
 
-            # 캐시 무효화 (차트 데이터가 갱신되었으므로 다음 조회 시 새로 캐싱)
-            cache.delete('charts:ai')
+            # 캐시 무효화 — 커밋 성공 직후에 실행되도록 예약
+            transaction.on_commit(lambda: cache.delete('charts:ai'))
 
             return {"status": "success", "count": created_count}
             
